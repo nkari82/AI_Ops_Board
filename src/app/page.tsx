@@ -264,22 +264,20 @@ const operationPosts: OperationPost[] = [
     },
   ]);
 
-  const registerUserPost = () => {
-    if (!draftTitle || !draftBody) return;
+  const registerUserPost = (title: string, body: string, domain: Domain) => {
+    if (!title || !body) return;
     const newPost: UserPost = {
       id: Date.now(),
-      title: draftTitle,
-      body: draftBody,
+      title: title,
+      body: body,
       author: "current-user",
-      domain: activeSetting,
+      domain: domain,
       votes: 0,
       createdAt: new Date().toLocaleTimeString(),
       tags: [],
       sourceKind: "manual_user_input",
     };
     setUserPosts([newPost, ...userPosts]);
-    setDraftTitle("");
-    setDraftBody("");
   };
 
 const models: LlmModel[] = [
@@ -458,8 +456,31 @@ export default function AiOpsBoard() {
   const [selectedModel, setSelectedModel] = useState(models[0].id);
   const [activeSetting, setActiveSetting] = useState<Domain>("Unity");
   const [draftTitle, setDraftTitle] = useState("");
+  const [draftBody, setDraftBody] = useState("");
   const [template, setTemplate] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [activeDomain, setActiveDomain] = useState<string | null>(null);
+  const [previewTemplate, setPreviewTemplate] = useState<string>("");
+  const [knowledgeCards, setKnowledgeCards] = useState<any[]>([]);
+
+  const registerUserPost = () => {
+    if (!draftTitle || !draftBody) return;
+    const newPost: UserPost = {
+      id: Date.now(),
+      title: draftTitle,
+      body: draftBody,
+      author: "current-user",
+      domain: activeSetting,
+      votes: 0,
+      createdAt: new Date().toLocaleTimeString(),
+      tags: [],
+      sourceKind: "manual_user_input",
+    };
+    setUserPosts([newPost, ...userPosts]);
+    setDraftTitle("");
+    setDraftBody("");
+  };
 
   const generateOpsTemplate = async (domain: string) => {
     setGenerating(true);
@@ -493,9 +514,6 @@ export default function AiOpsBoard() {
       console.error("Template download failed:", e);
     }
   };
-
-  const [isLoading, setIsLoading] = useState(false);
-  const [activeDomain, setActiveDomain] = useState<string | null>(null);
 
   const fetchTemplatePreview = async (domain: string) => {
     setIsLoading(true);
