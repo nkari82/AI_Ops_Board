@@ -1,0 +1,23 @@
+# AI Ops Board Backend Dependencies
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+sqlalchemy>=2.0.0
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.9
+asyncpraw>=7.7.1
+PyGithub>=2.1.1
+aiohttp>=3.9.1
+httpx>=0.26.0
+python-dotenv>=1.0.0
+apscheduler>=3.10.0
+feedparser>=6.0.0
+beautifulsoup4>=4.12.0
+lxml>=5.1.0
+celery>=5.3.0
+redis>=5.0.0
+pgvector>=0.2.5
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.7
