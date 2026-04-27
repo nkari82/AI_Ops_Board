@@ -1,5 +1,5 @@
 import aiohttp
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from config import settings
 import json
 

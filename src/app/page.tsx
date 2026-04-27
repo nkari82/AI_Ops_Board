@@ -239,30 +239,48 @@ const operationPosts: OperationPost[] = [
   },
 ];
 
-const userPosts: UserPost[] = [
-  {
-    id: 101,
-    title: "3090 2장으로 로컬 LLM 탐색 모델 돌리는 팁",
-    body: "Qwen 계열을 OpenCode 탐색/요약용으로 쓰고 Claude는 최종 리뷰만 쓰는 구성이 제일 안정적이었다.",
-    author: "dev01",
-    domain: "로컬 LLM",
-    votes: 21,
-    createdAt: "오늘 11:30",
-    tags: ["3090", "Qwen", "OpenCode"],
-    sourceKind: "manual_user_input",
-  },
-  {
-    id: 102,
-    title: "Unity 프로젝트에서 AGENTS.md 짧게 줄인 후기",
-    body: "규칙을 영어 1줄 + 한국어 설명 1줄로 줄였더니 반복 설명이 줄고 결과가 더 안정적이었다.",
-    author: "client-dev",
-    domain: "Unity",
-    votes: 14,
-    createdAt: "어제 22:10",
-    tags: ["Unity", "AGENTS.md", "GC"],
-    sourceKind: "manual_user_input",
-  },
-];
+  const [userPosts, setUserPosts] = useState<UserPost[]>([
+    {
+      id: 101,
+      title: "3090 2장으로 로컬 LLM 탐색 모델 돌리는 팁",
+      body: "Qwen 계열을 OpenCode 탐색/요약용으로 쓰고 Claude는 최종 리뷰만 쓰는 구성이 제일 안정적이었다.",
+      author: "dev01",
+      domain: "로컬 LLM",
+      votes: 21,
+      createdAt: "오늘 11:30",
+      tags: ["3090", "Qwen", "OpenCode"],
+      sourceKind: "manual_user_input",
+    },
+    {
+      id: 102,
+      title: "Unity 프로젝트에서 AGENTS.md 짧게 줄인 후기",
+      body: "규칙을 영어 1줄 + 한국어 설명 1줄로 줄였더니 반복 설명이 줄고 결과가 더 안정적이었다.",
+      author: "client-dev",
+      domain: "Unity",
+      votes: 14,
+      createdAt: "어제 22:10",
+      tags: ["Unity", "AGENTS.md", "GC"],
+      sourceKind: "manual_user_input",
+    },
+  ]);
+
+  const registerUserPost = () => {
+    if (!draftTitle || !draftBody) return;
+    const newPost: UserPost = {
+      id: Date.now(),
+      title: draftTitle,
+      body: draftBody,
+      author: "current-user",
+      domain: activeSetting,
+      votes: 0,
+      createdAt: new Date().toLocaleTimeString(),
+      tags: [],
+      sourceKind: "manual_user_input",
+    };
+    setUserPosts([newPost, ...userPosts]);
+    setDraftTitle("");
+    setDraftBody("");
+  };
 
 const models: LlmModel[] = [
   {
@@ -457,9 +475,45 @@ export default function AiOpsBoard() {
     }
   };
 
-  // ... (existing state)
+  const downloadTemplate = async (domain: string) => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8005";
+      const response = await fetch(`${apiUrl}/api/templates/generate-zip?domain=${domain}`, {
+        method: "POST",
+      });
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${domain}-ops-template.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e) {
+      console.error("Template download failed:", e);
+    }
+  };
 
-  // API 호출 추가
+  const [isLoading, setIsLoading] = useState(false);
+  const [activeDomain, setActiveDomain] = useState<string | null>(null);
+
+  const fetchTemplatePreview = async (domain: string) => {
+    setIsLoading(true);
+    setActiveDomain(domain);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8005";
+      const response = await fetch(`${apiUrl}/api/templates/generate?domain=${domain}`, {
+        method: "POST",
+      });
+      const data = await response.json();
+      setPreviewTemplate(data.template);
+    } catch (e) {
+      console.error("Template preview failed:", e);
+      alert("템플릿 생성에 실패했습니다.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
   const fetchKnowledge = async () => {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8005";
@@ -479,6 +533,8 @@ export default function AiOpsBoard() {
     github?: any[];
     hn?: any[];
   }>({});
+  const [crawling, setCrawling] = useState(false);
+  const [crawlingStatus, setCrawlingStatus] = useState("대기 중");
 
   const filteredPosts = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -502,21 +558,26 @@ export default function AiOpsBoard() {
   const testCrawl = async () => {
     if (crawling) return;
     setCrawling(true);
+    setCrawlingStatus("진행 중...");
     setCrawlResults({});
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8005";
-      const [reddit, github, hn] = await Promise.all([
+      // 비동기 작업 시작 호출
+      await Promise.all([
         fetch(`${apiUrl}/api/crawl/reddit`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ subreddit: "LocalLLaMA", limit: 5 }),
-        }).then((r) => r.json()),
-        fetch(`${apiUrl}/api/crawl/github?limit=5`, { method: "POST" }).then((r) => r.json()),
-        fetch(`${apiUrl}/api/crawl/hn?limit=5`, { method: "POST" }).then((r) => r.json()),
+        }),
+        fetch(`${apiUrl}/api/crawl/github?limit=5`, { method: "POST" }),
+        fetch(`${apiUrl}/api/crawl/hn?limit=5`, { method: "POST" }),
       ]);
-      setCrawlResults({ reddit, github, hn });
+      setCrawlingStatus("작업 완료");
+      // 데이터 재조회
+      fetchKnowledge();
     } catch (e) {
       console.error("Crawl test failed:", e);
+      setCrawlingStatus("실패");
     } finally {
       setCrawling(false);
     }
@@ -553,9 +614,9 @@ export default function AiOpsBoard() {
         <div className="mx-auto max-w-7xl px-4 py-4">
           <Card className="rounded-2xl border-slate-200">
             <CardContent className="p-4">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" /> 크롤링 결과
-              </div>
+              {crawlingStatus && (
+                <div className="mb-2 text-xs font-bold text-blue-600">상태: {crawlingStatus}</div>
+              )}
               <div className="grid gap-4 md:grid-cols-3">
                 {crawlResults.reddit && (
                   <div>
@@ -567,17 +628,39 @@ export default function AiOpsBoard() {
                     </div>
                   </div>
                 )}
-                {/* 지식 카드 뷰 */}
-                {knowledgeCards.length > 0 && (
-                  <div>
-                    <div className="mb-2 text-xs font-medium text-slate-500">AI 지식 카드</div>
-                    <div className="space-y-1">
-                      {knowledgeCards.map((card, i) => (
-                        <div key={i} className="truncate text-sm font-bold text-blue-700">{card.title}</div>
-                      ))}
-                    </div>
+                {/* 템플릿 생성 섹션 */}
+                <div className="mt-6 border-t pt-4">
+                  <div className="mb-2 text-sm font-bold text-slate-700">실전 운용 템플릿 생성</div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => fetchTemplatePreview("Unity")} 
+                      disabled={isLoading}
+                      className={`rounded px-3 py-1 text-xs text-white ${isLoading && activeDomain === 'Unity' ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'}`}
+                    >
+                      {isLoading && activeDomain === 'Unity' ? '생성 중...' : 'Unity 보기'}
+                    </button>
+                    <button 
+                      onClick={() => fetchTemplatePreview("Backend")} 
+                      disabled={isLoading}
+                      className={`rounded px-3 py-1 text-xs text-white ${isLoading && activeDomain === 'Backend' ? 'bg-green-400' : 'bg-green-600 hover:bg-green-700'}`}
+                    >
+                      {isLoading && activeDomain === 'Backend' ? '생성 중...' : 'Backend 보기'}
+                    </button>
                   </div>
-                )}
+                  
+                  {previewTemplate && (
+                    <div className="mt-4 animate-in fade-in rounded border border-slate-200 bg-white p-4 shadow-sm">
+                      <h4 className="mb-2 text-sm font-semibold text-slate-800">{activeDomain} 운영 템플릿</h4>
+                      <pre className="max-h-80 overflow-y-auto rounded bg-slate-100 p-3 text-xs whitespace-pre-wrap">{previewTemplate}</pre>
+                      <button 
+                        onClick={() => downloadTemplate(activeDomain || 'default')}
+                        className="mt-3 flex w-full justify-center rounded bg-red-600 py-2 text-sm font-medium text-white hover:bg-red-700"
+                      >
+                        📂 Zip으로 다운로드
+                      </button>
+                    </div>
+                  )}
+                </div>
                 {crawlResults.github && (
                   <div>
                     <div className="mb-2 text-xs font-medium text-slate-500">GitHub</div>
@@ -792,7 +875,7 @@ export default function AiOpsBoard() {
                     placeholder="실전 운영 팁 작성"
                     className="min-h-24 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <Button className="rounded-2xl" onClick={() => { setDraftTitle(""); setDraftBody(""); }}>등록 Mock</Button>
+                  <Button className="rounded-2xl" onClick={registerUserPost}>등록</Button>
                 </div>
                 <div className="mt-4 space-y-3">
                   {userPosts.map((post) => (

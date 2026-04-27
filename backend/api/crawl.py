@@ -6,6 +6,10 @@ from models import CrawlRequest
 from db import get_db
 from db_models import CrawledPost
 from celery_app import celery_app
+from crawlers.github import GithubCrawler
+from crawlers.hn import HackerNewsCrawler
+
+router = APIRouter(prefix="/crawl", tags=["crawl"])
 
 @celery_app.task
 def background_crawl_reddit_task(subreddit: str, limit: int):
@@ -64,7 +68,6 @@ async def get_crawl_status(task_id: str):
 @router.post("/github")
 async def crawl_github(limit: int = 10, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
     try:
-        from ..crawlers.github import GithubCrawler
         crawler = GithubCrawler()
         
         results = await crawler.crawl_trending(limit)
@@ -77,7 +80,7 @@ async def crawl_github(limit: int = 10, db: AsyncSession = Depends(get_db)) -> L
                 source_type="github",
                 content=item.get("description", ""),
                 score=item.get("stargazers_count", 0),
-                metadata={"language": item.get("language"), "topics": item.get("topics")},
+                extra_data={"language": item.get("language"), "topics": item.get("topics")},
                 domain=detect_domain(item.get("description", ""))
             )
             db.add(post)
@@ -91,7 +94,6 @@ async def crawl_github(limit: int = 10, db: AsyncSession = Depends(get_db)) -> L
 @router.post("/hn")
 async def crawl_hackernews(limit: int = 10, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
     try:
-        from ..crawlers.hn import HackerNewsCrawler
         crawler = HackerNewsCrawler()
         
         results = await crawler.crawl_top_stories(limit)
@@ -104,7 +106,7 @@ async def crawl_hackernews(limit: int = 10, db: AsyncSession = Depends(get_db)) 
                 source_type="hn",
                 content="",
                 score=item.get("score", 0),
-                metadata={"by": item.get("by"), "comments_count": item.get("comments_count")},
+                extra_data={"by": item.get("by"), "comments_count": item.get("comments_count")},
                 domain=detect_domain(item.get("title", ""))
             )
             db.add(post)
