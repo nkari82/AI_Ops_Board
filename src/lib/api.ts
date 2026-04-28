@@ -31,6 +31,8 @@ export async function crawlGithubApi(limit: number): Promise<Response> {
   return fetch(`${API_BASE}/api/crawl/github?limit=${limit}`, { method: "POST" });
 }
 
-export async function crawlHnApi(limit: number): Promise<Response> {
-  return fetch(`${API_BASE}/api/crawl/hn?limit=${limit}`, { method: "POST" });
+export async function fetchOperationPostsApi(): Promise<any[]> {
+  const response = await fetch(`${API_BASE}/api/posts`);
+  return response.json();
 }
+

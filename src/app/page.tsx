@@ -1,7 +1,7 @@
-"use client";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import type { BoardCategory, Domain } from "@/types";
-import { models, operationPosts, recommendedSettings, agentsTemplate } from "@/lib/constants";
+import { models, recommendedSettings, agentsTemplate } from "@/lib/constants";
+import { fetchOperationPostsApi } from "@/lib/api";
 import { useBoardData } from "@/hooks/useBoardData";
 import { useCrawler } from "@/hooks/useCrawler";
 import { useTemplateService } from "@/hooks/useTemplateService";
@@ -45,6 +45,25 @@ export default function AiOpsBoard() {
     fetchTemplatePreview,
     downloadTemplate,
   } = useTemplateService();
+  const [operationPosts, setOperationPosts] = useState<any[]>([]);
+
+  // ... (existing state)
+
+  const fetchPostsData = useCallback(async () => {
+    try {
+      const data = await fetchOperationPostsApi();
+      setOperationPosts(data);
+    } catch (e) {
+      console.error("Operation posts fetch failed:", e);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    fetchPostsData();
+    fetchKnowledge();
+  }, [fetchPostsData, fetchKnowledge]);
+
+  // ... (existing logic)
 
   const filteredPosts = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -131,9 +150,15 @@ export default function AiOpsBoard() {
 
         <section className="grid gap-4 lg:grid-cols-[1fr_380px]">
           <div className="space-y-4">
-            {filteredPosts.map((post) => (
-              <OperationPostCard key={post.id} post={post} />
-            ))}
+            {filteredPosts.length > 0 ? (
+              filteredPosts.map((post) => (
+                <OperationPostCard key={post.id} post={post} />
+              ))
+            ) : (
+              <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-slate-500">
+                표시할 운용 포스트가 없습니다. 크롤링을 실행하거나 필터를 조정하세요.
+              </div>
+            )}
           </div>
 
           <aside className="space-y-4">
