@@ -10,10 +10,13 @@ class KnowledgeManager:
     def __init__(self):
         self.llm_router = LLMRouter()
 
-    async def generate_knowledge_cards(self, db: AsyncSession) -> List[Dict[str, Any]]:
-        query = select(CrawledPost).order_by(CrawledPost.created_at.desc()).limit(10)
-        result = await db.execute(query)
-        posts = result.scalars().all()
+    async def generate_knowledge_cards(self, db: AsyncSession, new_post: CrawledPost = None) -> List[Dict[str, Any]]:
+        if new_post:
+            posts = [new_post]
+        else:
+            query = select(CrawledPost).order_by(CrawledPost.created_at.desc()).limit(10)
+            result = await db.execute(query)
+            posts = result.scalars().all()
         
         contents = "\n".join([f"- {p.title}: {p.summary}" for p in posts])
         

@@ -144,6 +144,7 @@ class ContentAnalyzer:
             return concepts[:3]
         except Exception:
             return []
+    async def _assess_risk(self, content: str, summary: str) -> str:
         text = (content + " " + summary).lower()
         
         high_risk_keywords = ['memory leak', 'crash', 'security', '보안', 'critical', 'oom']

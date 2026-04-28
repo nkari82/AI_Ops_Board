@@ -4,7 +4,7 @@ from db import get_db
 from services.knowledge_manager import KnowledgeManager
 from services.template_manager import TemplateManager
 
-router = APIRouter(prefix="/api", tags=["knowledge", "templates"])
+router = APIRouter(prefix="", tags=["knowledge", "templates"])
 
 knowledge_manager = KnowledgeManager()
 template_manager = TemplateManager()

@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     
     VLLM_ENDPOINT: str = "http://localhost:8000/v1"
     
-    CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:5173"]
+    CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:5173", "http://frontend:3000"]
     SECRET_KEY: str = "supersecretkey"
     ALGORITHM: str = "HS256"
     

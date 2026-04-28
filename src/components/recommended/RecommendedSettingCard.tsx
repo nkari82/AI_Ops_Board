@@ -1,0 +1,69 @@
+import React from "react";
+import type { Domain, RecommendedSetting } from "@/types";
+import { Card, CardContent } from "@/components/ui/card";
+import { InfoBlock } from "@/components/shared/InfoBlock";
+import { DomainIcon } from "@/components/shared/DomainIcon";
+import { cn } from "@/lib/utils";
+import { Bot, Flame, GitBranch, Network, Wrench } from "lucide-react";
+import { motion } from "framer-motion";
+
+interface RecommendedSettingCardProps {
+  settings: RecommendedSetting[];
+  activeSetting: Domain;
+  onSelectSetting: (domain: Domain) => void;
+}
+
+export function RecommendedSettingCard({
+  settings,
+  activeSetting,
+  onSelectSetting,
+}: RecommendedSettingCardProps) {
+  const setting = settings.find((item) => item.domain === activeSetting) ?? settings[0];
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+      <Card className="overflow-hidden rounded-3xl border-blue-100 bg-gradient-to-br from-blue-950 via-slate-900 to-slate-950 text-white shadow-xl">
+        <CardContent className="p-6 md:p-8">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-sm text-blue-100 ring-1 ring-white/15">
+              <Flame className="h-4 w-4" /> 추천 셋팅
+            </div>
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-bold text-emerald-700">
+              {setting.score}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {settings.map((item) => (
+              <button
+                key={item.domain}
+                onClick={() => onSelectSetting(item.domain)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition",
+                  activeSetting === item.domain
+                    ? "bg-white text-slate-950"
+                    : "bg-white/10 text-slate-200 hover:bg-white/15"
+                )}
+              >
+                <DomainIcon domain={item.domain} /> {item.domain}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-7 grid gap-6 md:grid-cols-[0.9fr_1.1fr]">
+            <div>
+              <h2 className="text-2xl font-bold leading-tight md:text-3xl">{setting.title}</h2>
+              <p className="mt-3 text-sm leading-6 text-slate-300">{setting.reason}</p>
+            </div>
+            <div className="grid gap-3">
+              <InfoBlock title="Model Routing" icon={<Bot className="h-4 w-4" />} items={setting.modelRouting} dark />
+              <InfoBlock title="Workflow" icon={<GitBranch className="h-4 w-4" />} items={setting.workflow} dark />
+              <InfoBlock title="MCP / Plugins" icon={<Network className="h-4 w-4" />} items={setting.mcp} dark />
+              <InfoBlock title="Rules" icon={<Wrench className="h-4 w-4" />} items={setting.rules} dark />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}

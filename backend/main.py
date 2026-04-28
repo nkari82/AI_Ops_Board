@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from db import init_db
-from api import posts, models, crawl, analyze, ws, templates
+from api import posts, models, crawl, analyze, ws, knowledge_templates
 
 app = FastAPI(
     title="AI Ops Board API",
@@ -18,8 +18,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"],
 )
 
 app.include_router(posts.router, prefix="/api")
@@ -27,7 +27,7 @@ app.include_router(models.router, prefix="/api")
 app.include_router(crawl.router, prefix="/api")
 app.include_router(analyze.router, prefix="/api")
 app.include_router(ws.router, prefix="/api")
-app.include_router(templates.router, prefix="/api")
+app.include_router(knowledge_templates.router, prefix="/api")
 
 @app.get("/")
 async def root():

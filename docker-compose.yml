@@ -15,9 +15,10 @@ services:
     networks:
       - ai-ops-network
 
-# Redis for Celery
+  # Redis for Celery
   redis:
     image: redis:alpine
+    command: ["redis-server", "--requirepass", "password123"]
     ports:
       - "6379:6379"
     networks:
@@ -33,7 +34,7 @@ services:
       - "${BACKEND_PORT:-8005}:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/aiopsboard
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:password123@redis:6379/0
       - REDDIT_CLIENT_ID=${REDDIT_CLIENT_ID}
       - REDDIT_CLIENT_SECRET=${REDDIT_CLIENT_SECRET}
       - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
