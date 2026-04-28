@@ -12,8 +12,12 @@ class YoutubeCrawler:
             return None
         
         try:
-            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
-            full_text = " ".join([entry['text'] for entry in transcript])
+            transcript = YouTubeTranscriptApi().fetch(video_id, languages=['ko', 'en'])
+            # FetchedTranscript is an iterable, we can iterate over it to get snippets
+            # Each snippet is an object with 'text', 'start', 'duration'
+            # Based on the error, the snippets might not be dictionaries.
+            # Let's try accessing the text attribute.
+            full_text = " ".join([getattr(entry, 'text', str(entry)) for entry in transcript])
             return {
                 "url": url,
                 "title": f"YouTube Video: {video_id}",

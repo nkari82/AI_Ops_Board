@@ -1,5 +1,9 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 from websocket_manager import manager
+
+class BroadcastRequest(BaseModel):
+    message: str
 
 router = APIRouter(prefix="/ws", tags=["websocket"])
 
@@ -13,6 +17,6 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 @router.post("/broadcast")
-async def broadcast_message(message: str):
-    await manager.broadcast(message)
+async def broadcast_message(request: BroadcastRequest):
+    await manager.broadcast(request.message)
     return {"message": "Broadcast successful"}

@@ -38,20 +38,18 @@ def background_crawl_reddit_task(subreddit: str, limit: int):
 @celery_app.task
 def background_crawl_youtube_task(url: str):
     import asyncio
-    import httpx
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from db import async_session_factory
+    from crawlers.youtube import YoutubeCrawler
+    from db import async_session_maker
     from db_models import CrawledPost
+    import sys
+    sys.path.append("/app")
     from services.knowledge_manager import KnowledgeManager
-    
-    # Broadcast start
-    asyncio.run(httpx.AsyncClient().post("http://backend:8000/api/ws/broadcast", json={"message": f"Crawl started for YouTube: {url}"}))
     
     async def _run():
         crawler = YoutubeCrawler()
         result = await crawler.crawl(url)
         if result:
-            async with async_session_factory() as db:
+            async with async_session_maker() as db:
                 post = CrawledPost(
                     title=result["title"],
                     url=result["url"],
@@ -72,12 +70,8 @@ def background_crawl_youtube_task(url: str):
                 
         return result
     
-    result = asyncio.run(_run())
-    
-    # Broadcast finish
-    asyncio.run(httpx.AsyncClient().post("http://backend:8000/api/ws/broadcast", json={"message": f"Crawl finished for YouTube: {url}"}))
-    
-    return result
+    # Celery 환경에서 루프 충돌을 피하기 위해 asyncio.run 대신 내부에서 동기적 실행
+    return asyncio.run(_run())
 
 def detect_domain(text: str) -> str:
     text = text.lower()

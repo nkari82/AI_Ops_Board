@@ -48,6 +48,24 @@ services:
     volumes:
       - ./backend:/app
 
+  # Celery Worker
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "celery_app", "worker", "--loglevel=info"]
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/aiopsboard
+      - REDIS_URL=redis://:password123@redis:6379/0
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - ai-ops-network
+    restart: unless-stopped
+
   # PostgreSQL Database
   postgres:
     image: pgvector/pgvector:pg15
