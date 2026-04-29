@@ -42,3 +42,6 @@ npm-debug.log*
 # Misc
 *.md
 !README.md
+
+# Runtime feedback data
+backend/data/*.jsonl
