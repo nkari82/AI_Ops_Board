@@ -1,85 +1,98 @@
+"use client";
 import React, { useMemo, useState, useCallback } from "react";
+import Link from "next/link";
 import type { BoardCategory, Domain } from "@/types";
-import { models, recommendedSettings, agentsTemplate } from "@/lib/constants";
-import { fetchOperationPostsApi } from "@/lib/api";
 import { useBoardData } from "@/hooks/useBoardData";
 import { useCrawler } from "@/hooks/useCrawler";
 import { useTemplateService } from "@/hooks/useTemplateService";
-import { RecommendedSettingCard } from "@/components/recommended/RecommendedSettingCard";
-import { LlmRouter } from "@/components/llm/LlmRouter";
 import { Metric } from "@/components/shared/Metric";
 import { BoardFilters } from "@/components/board/BoardFilters";
 import { OperationPostCard } from "@/components/board/OperationPostCard";
-import { UserBoard } from "@/components/board/UserBoard";
 import { CrawlResultsPanel } from "@/components/crawler/CrawlResultsPanel";
-import { TemplateService } from "@/components/template/TemplateService";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import {
-  AlertTriangle,
-  Flame,
   Globe2,
   Layers3,
   RefreshCw,
   ShieldAlert,
   Sparkles,
-  UserRound,
 } from "lucide-react";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8005";
 
 export default function AiOpsBoard() {
   const [query, setQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<BoardCategory | "전체">("전체");
   const [selectedDomain, setSelectedDomain] = useState<Domain | "전체">("전체");
-  const [selectedModel, setSelectedModel] = useState(models[0].id);
-  const [activeSetting, setActiveSetting] = useState<Domain>("Unity");
+  const [llmTestStatus, setLlmTestStatus] = useState<string>("");
 
-  const { userPosts, fetchKnowledge, registerUserPost } = useBoardData();
+  const testLlmConnection = async () => {
+    setLlmTestStatus("테스트 중...");
+    try {
+      const response = await fetch(`${API_BASE}/api/test-llm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "Hello, are you working?" })
+      });
+      const data = await response.json();
+      setLlmTestStatus(data.status === "success" ? "성공!" : "실패");
+      console.log("LLM Response:", data.response);
+    } catch (e) {
+      setLlmTestStatus("에러 발생");
+      console.error("LLM Test failed:", e);
+    }
+  };
+
+  // const { userPosts, fetchKnowledge, registerUserPost } = useBoardData();
+  // const { fetchKnowledge } = useBoardData(); // 이 부분은 아래와 같이 수정됨
+  const { fetchKnowledge, visiblePosts, allPosts, loadMore, hasMore } = useBoardData();
   const { crawlResults, crawling, crawlingStatus, testCrawl } = useCrawler(fetchKnowledge);
   const {
-    template,
-    generating,
     isLoading,
     activeDomain,
     previewTemplate,
-    generateOpsTemplate,
     fetchTemplatePreview,
     downloadTemplate,
   } = useTemplateService();
-  const [operationPosts, setOperationPosts] = useState<any[]>([]);
+  const [latestNews, setLatestNews] = useState<Array<{ title: string; url: string; source: string }>>([]);
 
-  // ... (existing state)
-
-  const fetchPostsData = useCallback(async () => {
-    try {
-      const data = await fetchOperationPostsApi();
-      setOperationPosts(data);
-    } catch (e) {
-      console.error("Operation posts fetch failed:", e);
-    }
-  }, []);
+  // 데이터 로딩 부분은 useBoardData로 이동하여 제거함
+  // fetchPostsData 제거
+  
+  React.useEffect(() => {
+    const news = allPosts.slice(0, 3).map((p) => ({
+      title: p.title,
+      url: p.sources[0] || "#",
+      source: p.sourceKind,
+    }));
+    setLatestNews(news);
+  }, [allPosts]);
 
   React.useEffect(() => {
-    fetchPostsData();
     fetchKnowledge();
-  }, [fetchPostsData, fetchKnowledge]);
+  }, [fetchKnowledge]);
 
   // ... (existing logic)
 
   const filteredPosts = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return operationPosts.filter((post) => {
+    
+    return allPosts.filter((post) => {
+      if (!post) return false;
+      
       const categoryOk = selectedCategory === "전체" || post.category === selectedCategory;
       const domainOk = selectedDomain === "전체" || post.domain === selectedDomain;
+      
       const queryOk =
         q.length === 0 ||
-        [post.title, post.summary, post.rule, post.skill, post.agentRule, post.domain, post.category, ...post.tags]
+        [post.title, post.summary, post.domain, post.category, ...(post.tags || [])]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
           .includes(q);
       return categoryOk && domainOk && queryOk;
     });
-  }, [query, selectedCategory, selectedDomain]);
+  }, [query, selectedCategory, selectedDomain, allPosts]);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
@@ -99,11 +112,16 @@ export default function AiOpsBoard() {
               disabled={crawling}
             >
               <RefreshCw className={`h-3.5 w-3.5 mr-1 ${crawling ? "animate-spin" : ""}`} />
-              {crawling ? "크롤링 중..." : "크롤링 테스트"}
+              {crawling ? "크롤링 중..." : "최신 뉴스 업데이트"}
             </Button>
-            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1">
-              <Flame className="h-3.5 w-3.5" /> 추천 셋팅 하루 1회
-            </span>
+            <Link href="/recommendations">
+              <Button size="sm" variant="outline">추천 셋팅 보기</Button>
+            </Link>
+            <Button size="sm" variant="outline" onClick={testLlmConnection}>
+              <Sparkles className="h-3.5 w-3.5 mr-1" />
+              LLM 연결 테스트
+            </Button>
+            {llmTestStatus && <span className="text-sm font-bold">{llmTestStatus}</span>}
           </div>
         </div>
       </header>
@@ -119,22 +137,10 @@ export default function AiOpsBoard() {
       />
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
-        <section className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
-          <RecommendedSettingCard
-            settings={recommendedSettings}
-            activeSetting={activeSetting}
-            onSelectSetting={setActiveSetting}
-          />
-          <LlmRouter
-            models={models}
-            selectedModel={selectedModel}
-            onSelectModel={setSelectedModel}
-          />
-        </section>
+        {/* [REMOVED: RecommendedSettingCard & LlmRouter] */}
 
-        <section className="grid gap-4 md:grid-cols-4">
-          <Metric icon={<Globe2 className="h-5 w-5" />} label="자동 수집 보드" value="크롤링 + AI" caption="유저 게시판 제외" />
-          <Metric icon={<UserRound className="h-5 w-5" />} label="유저 게시판" value="수동 입력" caption="자동 수집 없음" />
+        <section className="grid gap-4 md:grid-cols-3">
+          <Metric icon={<Globe2 className="h-5 w-5" />} label="자동 수집 보드" value="크롤링 + AI" caption="실시간 연동" />
           <Metric icon={<Layers3 className="h-5 w-5" />} label="실전 운용" value="Rule+Skill" caption="AGENTS.md 포함" />
           <Metric icon={<ShieldAlert className="h-5 w-5" />} label="MCP" value="권한 분리" caption="위험도 라벨링" />
         </section>
@@ -148,48 +154,23 @@ export default function AiOpsBoard() {
           onDomainChange={setSelectedDomain}
         />
 
-        <section className="grid gap-4 lg:grid-cols-[1fr_380px]">
-          <div className="space-y-4">
-            {filteredPosts.length > 0 ? (
-              filteredPosts.map((post) => (
+        <section className="space-y-4">
+          {filteredPosts.length > 0 ? (
+            <>
+              {filteredPosts.slice(0, visiblePosts.length).map((post) => (
                 <OperationPostCard key={post.id} post={post} />
-              ))
-            ) : (
-              <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-slate-500">
-                표시할 운용 포스트가 없습니다. 크롤링을 실행하거나 필터를 조정하세요.
-              </div>
-            )}
-          </div>
-
-          <aside className="space-y-4">
-            <UserBoard
-              userPosts={userPosts}
-              activeDomain={activeSetting}
-              onRegister={registerUserPost}
-            />
-            <TemplateService
-              agentsTemplate={agentsTemplate}
-              activeDomain={activeSetting}
-              template={template}
-              generating={generating}
-              onGenerate={generateOpsTemplate}
-            />
-            <Card className="rounded-3xl border-slate-200 bg-white shadow-sm">
-              <CardContent className="p-5 text-sm leading-6 text-slate-700">
-                <h2 className="flex items-center gap-2 text-lg font-bold text-slate-950">
-                  <AlertTriangle className="h-5 w-5 text-amber-500" /> Production 설계
-                </h2>
-                <ul className="mt-3 list-disc space-y-1 pl-5">
-                  <li>FastAPI + PostgreSQL</li>
-                  <li>Celery/RQ 크롤러</li>
-                  <li>유저 게시판은 수동 입력만 허용</li>
-                  <li>그 외 보드는 웹 크롤링 + AI 요약 + 축적 + 합성 데이터</li>
-                  <li>LLM Router: 무료/로컬/유료 모델 역할 분리</li>
-                  <li>추천 셋팅은 분야별 하루 1회 생성</li>
-                </ul>
-              </CardContent>
-            </Card>
-          </aside>
+              ))}
+              {hasMore && (
+                <div className="text-center">
+                  <Button onClick={loadMore} variant="outline">더 보기</Button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-slate-500">
+              표시할 운용 포스트가 없습니다. 크롤링을 실행하거나 필터를 조정하세요.
+            </div>
+          )}
         </section>
       </main>
     </div>

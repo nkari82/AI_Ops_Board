@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
-import type { Domain, UserPost } from "@/types";
+import { useCallback, useEffect, useState, useMemo } from "react";
+import type { KnowledgeCard, OperationPost } from "@/types";
 import { fetchKnowledgeApi, fetchOperationPostsApi } from "@/lib/api";
 
 export function useBoardData() {
-  const [userPosts, setUserPosts] = useState<UserPost[]>([]);
-  const [knowledgeCards, setKnowledgeCards] = useState<unknown[]>([]);
+  const [allPosts, setAllPosts] = useState<OperationPost[]>([]);
+  const [knowledgeCards, setKnowledgeCards] = useState<KnowledgeCard[]>([]);
+  const [visibleCount, setVisibleCount] = useState(10);
 
-  const fetchPosts = useCallback(async () => {
+  const fetchOperationPosts = useCallback(async () => {
     try {
       const data = await fetchOperationPostsApi();
-      setUserPosts(data);
+      const sortedData = [...data].sort((a, b) => 
+        new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+      );
+      setAllPosts(sortedData);
     } catch (e) {
       console.error("Posts fetch failed:", e);
     }
@@ -25,28 +29,16 @@ export function useBoardData() {
   }, []);
 
   useEffect(() => {
-    fetchPosts();
+    fetchOperationPosts();
     fetchKnowledge();
-  }, [fetchPosts, fetchKnowledge]);
+  }, [fetchOperationPosts, fetchKnowledge]);
 
-  const registerUserPost = useCallback(
-    (title: string, body: string, domain: Domain) => {
-      if (!title || !body) return;
-      const newPost: UserPost = {
-        id: Date.now(),
-        title,
-        body,
-        author: "current-user",
-        domain,
-        votes: 0,
-        createdAt: new Date().toLocaleTimeString(),
-        tags: [],
-        sourceKind: "manual_user_input",
-      };
-      setUserPosts((prev) => [newPost, ...prev]);
-    },
-    []
-  );
+  const visiblePosts = useMemo(() => allPosts.slice(0, visibleCount), [allPosts, visibleCount]);
+  const hasMore = visibleCount < allPosts.length;
 
-  return { userPosts, knowledgeCards, fetchPosts, fetchKnowledge, registerUserPost };
+  const loadMore = () => {
+    setVisibleCount((prev) => prev + 10);
+  };
+
+  return { knowledgeCards, fetchKnowledge, visiblePosts, allPosts, loadMore, hasMore };
 }

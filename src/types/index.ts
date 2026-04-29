@@ -6,7 +6,8 @@ export type Domain =
   | "Unity"
   | "Unreal"
   | "로컬 LLM"
-  | "Agent/MCP";
+  | "Agent/MCP"
+  | "기타";
 
 export type BoardCategory =
   | "실전 운용"
@@ -26,21 +27,59 @@ export type SourceKind =
 export type OperationPost = {
   id: number;
   title: string;
+  titleKo?: string | null;
+  summary: string;
+  summaryKo?: string | null;
+  content: string;
   category: BoardCategory;
+  docType: string | null;
+  techStack: string[];
   domain: Domain;
   score: number;
   sourceKind: Exclude<SourceKind, "manual_user_input">;
   sources: string[];
   updatedAt: string;
-  summary: string;
   rule?: string;
   skill?: string;
   agentRule?: string;
   badExample?: string;
   goodExample?: string;
-  action: string;
+  action: string | null;
   tags: string[];
-  risk: "low" | "medium" | "high";
+  risk: "low" | "medium" | "high" | null;
+};
+
+export type OperationPostApi = {
+  id: number;
+  title: string;
+  title_ko?: string | null;
+  summary: string;
+  summary_ko?: string | null;
+  content: string;
+  category: BoardCategory;
+  doc_type: string | null;
+  tech_stack: string[];
+  domain: Domain;
+  score: number;
+  source_kind: Exclude<SourceKind, "manual_user_input">;
+  sources: string[];
+  updated_at: string;
+  rule?: string | null;
+  skill?: string | null;
+  agent_rule?: string | null;
+  bad_example?: string | null;
+  good_example?: string | null;
+  action: string | null;
+  tags: string[];
+  risk: "low" | "medium" | "high" | null;
+};
+
+export type KnowledgeCard = {
+  title: string;
+  content: string;
+  category?: string;
+  type?: string;
+  tech_stack?: string[];
 };
 
 export type UserPost = {
@@ -74,4 +113,6 @@ export type RecommendedSetting = {
   mcp: string[];
   rules: string[];
   reason: string;
+  evidenceCount?: number;
+  feedbackCount?: number;
 };

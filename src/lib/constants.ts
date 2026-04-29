@@ -23,53 +23,7 @@ export const categories: BoardCategory[] = [
 export const operationPosts: OperationPost[] = [];
 
 
-export const models: LlmModel[] = [
-  {
-    id: "local-qwen",
-    name: "Local Qwen Coder",
-    provider: "Local",
-    cost: "free",
-    role: "파일 탐색, 로그 요약, 간단 수정",
-    endpoint: "http://localhost:8000/v1",
-    enabled: true,
-  },
-  {
-    id: "groq-free",
-    name: "Groq Free Tier",
-    provider: "Groq",
-    cost: "free",
-    role: "빠른 요약, 분류, 초안 생성",
-    endpoint: "https://api.groq.com/openai/v1",
-    enabled: true,
-  },
-  {
-    id: "google-free",
-    name: "Google AI Studio Free",
-    provider: "Google AI Studio",
-    cost: "free",
-    role: "긴 문서 요약, 일반 분류",
-    endpoint: "https://generativelanguage.googleapis.com",
-    enabled: true,
-  },
-  {
-    id: "openrouter-free",
-    name: "OpenRouter Free Models",
-    provider: "OpenRouter",
-    cost: "free",
-    role: "무료 공개 모델 실험",
-    endpoint: "https://openrouter.ai/api/v1",
-    enabled: false,
-  },
-  {
-    id: "claude",
-    name: "Claude Premium",
-    provider: "Claude",
-    cost: "paid",
-    role: "아키텍처 판단, 보안/성능 리뷰, 최종 diff 리뷰",
-    endpoint: "https://api.anthropic.com",
-    enabled: true,
-  },
-];
+export const models: LlmModel[] = [];
 
 export const recommendedSettings: RecommendedSetting[] = [];
 

@@ -28,9 +28,11 @@ export function RecommendedSettingCard({
             <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-sm text-blue-100 ring-1 ring-white/15">
               <Flame className="h-4 w-4" /> 추천 셋팅
             </div>
-            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-bold text-emerald-700">
-              {setting.score}
-            </span>
+            {setting && (
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-bold text-emerald-700">
+                {setting.score ?? 0}
+              </span>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -50,18 +52,20 @@ export function RecommendedSettingCard({
             ))}
           </div>
 
-          <div className="mt-7 grid gap-6 md:grid-cols-[0.9fr_1.1fr]">
-            <div>
-              <h2 className="text-2xl font-bold leading-tight md:text-3xl">{setting.title}</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-300">{setting.reason}</p>
+          {setting && (
+            <div className="mt-7 grid gap-6 md:grid-cols-[0.9fr_1.1fr]">
+              <div>
+                <h2 className="text-2xl font-bold leading-tight md:text-3xl">{setting.title}</h2>
+                <p className="mt-3 text-sm leading-6 text-slate-300">{setting.reason}</p>
+              </div>
+              <div className="grid gap-3">
+                <InfoBlock title="Model Routing" icon={<Bot className="h-4 w-4" />} items={setting.modelRouting} dark />
+                <InfoBlock title="Workflow" icon={<GitBranch className="h-4 w-4" />} items={setting.workflow} dark />
+                <InfoBlock title="MCP / Plugins" icon={<Network className="h-4 w-4" />} items={setting.mcp} dark />
+                <InfoBlock title="Rules" icon={<Wrench className="h-4 w-4" />} items={setting.rules} dark />
+              </div>
             </div>
-            <div className="grid gap-3">
-              <InfoBlock title="Model Routing" icon={<Bot className="h-4 w-4" />} items={setting.modelRouting} dark />
-              <InfoBlock title="Workflow" icon={<GitBranch className="h-4 w-4" />} items={setting.workflow} dark />
-              <InfoBlock title="MCP / Plugins" icon={<Network className="h-4 w-4" />} items={setting.mcp} dark />
-              <InfoBlock title="Rules" icon={<Wrench className="h-4 w-4" />} items={setting.rules} dark />
-            </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </motion.div>
