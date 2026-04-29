@@ -1,25 +1,43 @@
-from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from db import get_db
-from db_models import CrawledPost
-from services.template_manager import TemplateManager
-
-router = APIRouter(prefix="/templates", tags=["templates"])
-
-from fastapi import APIRouter, HTTPException, Depends, Response
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 import io
 import zipfile
-from db import get_db
-from db_models import CrawledPost
-from services.template_manager import TemplateManager
+from importlib import import_module
+from typing import Any
 
-router = APIRouter(prefix="/templates", tags=["templates"])
+from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+
+def _load_runtime_dependencies() -> tuple[Any, Any, Any]:
+    try:
+        db_module = import_module("backend.db")
+        models_module = import_module("backend.db_models")
+        template_module = import_module("backend.services.template_manager")
+    except ModuleNotFoundError:
+        db_module = import_module("db")
+        models_module = import_module("db_models")
+        template_module = import_module("services.template_manager")
+
+    return db_module.get_db, models_module.CrawledPost, template_module.TemplateManager
+
+
+get_db, CrawledPost, TemplateManager = _load_runtime_dependencies()
+
+router = APIRouter(prefix="/ops-templates", tags=["templates"])
+
+
+@router.get("/clone-instructions")
+async def get_clone_instructions(domain: str) -> dict[str, str]:
+    manager = TemplateManager()
+    script = manager.build_clone_script(domain)
+    return {
+        "domain": domain,
+        "script": script,
+        "hint": "스크립트를 clone.sh로 저장 후 실행하면 템플릿 저장소 골격이 생성됩니다.",
+    }
 
 @router.post("/generate-zip")
-async def generate_template_zip(domain: str, db: AsyncSession = Depends(get_db)):
+async def generate_template_zip(domain: str, db: AsyncSession = Depends(get_db)) -> Response:
     # 1. 지식 데이터 로드
     query = select(CrawledPost).where(CrawledPost.domain == domain).limit(10)
     result = await db.execute(query)
@@ -28,20 +46,28 @@ async def generate_template_zip(domain: str, db: AsyncSession = Depends(get_db))
     if not posts:
         raise HTTPException(status_code=404, detail="No knowledge found")
     
-    knowledge_list = [{"title": p.title, "summary": p.content[:200]} for p in posts]
+    knowledge_list = [
+        {
+            "title": p.title,
+            "summary": (p.summary or p.content or p.title or "")[:200],
+        }
+        for p in posts
+    ]
     
-    # 2. 템플릿 생성
+    # 2. 템플릿 번들 생성 (unified-ops + README + clone script)
     manager = TemplateManager()
-    template_content = await manager.generate_template_from_knowledge(domain, knowledge_list)
-    
+    try:
+        bundle = await manager.generate_template_bundle(domain, knowledge_list)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     # 3. Zip 생성
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-        zip_file.writestr("unified-ops.md", template_content)
-        zip_file.writestr("AGENTS.md", "# Agent Definitions\n\nGenerated from context.")
-        zip_file.writestr("Rule.md", "# Project Rules\n\nGenerated from context.")
+        for filename, content in bundle.items():
+            zip_file.writestr(filename, content)
     
-    zip_buffer.seek(0)
+    _ = zip_buffer.seek(0)
     
     return Response(
         content=zip_buffer.getvalue(),

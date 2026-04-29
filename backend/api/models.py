@@ -1,11 +1,33 @@
+from importlib import import_module
+from typing import TYPE_CHECKING, Any, cast
+
 from fastapi import APIRouter, HTTPException
-from typing import List
-from models import LlmModel, Domain
+
+if TYPE_CHECKING:
+    from backend.models import Domain, LlmModel
+
+
+def _load_backend_models() -> tuple[type[Any], type[Any]]:
+    try:
+        models_module = import_module("backend.models")
+    except ModuleNotFoundError:
+        models_module = import_module("models")
+    return models_module.LlmModel, models_module.Domain
+
+
+LlmModel, Domain = _load_backend_models()
+LlmModel = cast(type[Any], LlmModel)
+Domain = cast(type[Any], Domain)
+DOMAIN_VALUES = [
+    member.value
+    for member in getattr(Domain, "__members__", {}).values()
+    if hasattr(member, "value")
+]
 
 router = APIRouter(tags=["models"])
 
 
-MOCK_MODELS = [
+MOCK_MODELS: list[Any] = [
     LlmModel(
         id="hf-mistral-7b",
         name="Mistral-7B-Instruct",
@@ -36,18 +58,18 @@ MOCK_MODELS = [
 ]
 
 
-@router.get("/models", response_model=List[LlmModel])
-async def get_models():
+@router.get("/models", response_model=list[LlmModel])
+async def get_models() -> list[Any]:
     return MOCK_MODELS
 
 
-@router.get("/domains", response_model=List[str])
-async def get_domains():
-    return [domain.value for domain in Domain]
+@router.get("/domains", response_model=list[str])
+async def get_domains() -> list[str]:
+    return DOMAIN_VALUES
 
 
 @router.post("/models/{model_id}/toggle", response_model=LlmModel)
-async def toggle_model(model_id: str):
+async def toggle_model(model_id: str) -> Any:
     model = next((m for m in MOCK_MODELS if m.id == model_id), None)
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")

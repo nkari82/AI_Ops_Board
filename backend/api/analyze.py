@@ -1,12 +1,18 @@
+from importlib import import_module
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
-from typing import Dict, Any
-from models import AnalyzeRequest
+
+try:
+    AnalyzeRequest = import_module("backend.models").AnalyzeRequest
+except ModuleNotFoundError:
+    AnalyzeRequest = import_module("models").AnalyzeRequest
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
 
 @router.post("")
-async def analyze_content(request: AnalyzeRequest) -> Dict[str, Any]:
+async def analyze_content(request: Any) -> dict[str, Any]:
     try:
         from ..services.analyzer import ContentAnalyzer
         analyzer = ContentAnalyzer()

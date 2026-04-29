@@ -1,5 +1,4 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, Field
 from datetime import datetime
 from enum import Enum
 
@@ -13,6 +12,7 @@ class Domain(str, Enum):
     Unreal = "Unreal"
     로컬_LLM = "로컬 LLM"
     Agent_MCP = "Agent/MCP"
+    기타 = "기타"
 
 
 class BoardCategory(str, Enum):
@@ -35,21 +35,26 @@ class SourceKind(str, Enum):
 class OperationPost(BaseModel):
     id: int
     title: str
+    title_ko: str | None = None
+    summary: str
+    summary_ko: str | None = None
+    content: str
     category: BoardCategory
+    doc_type: str | None = None
+    tech_stack: list[str] = Field(default_factory=list)
     domain: Domain
     score: int
     source_kind: SourceKind
-    sources: List[str]
+    sources: list[str]
     updated_at: datetime
-    summary: str
-    rule: Optional[str] = None
-    skill: Optional[str] = None
-    agent_rule: Optional[str] = None
-    bad_example: Optional[str] = None
-    good_example: Optional[str] = None
-    action: str
-    tags: List[str]
-    risk: str  # low, medium, high
+    rule: str | None = None
+    skill: str | None = None
+    agent_rule: str | None = None
+    bad_example: str | None = None
+    good_example: str | None = None
+    action: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    risk: str | None = None  # low, medium, high
 
 
 class LlmModel(BaseModel):
@@ -63,11 +68,11 @@ class LlmModel(BaseModel):
 
 
 class CrawlRequest(BaseModel):
-    subreddit: Optional[str] = None
+    subreddit: str | None = None
     limit: int = 10
 
 
 class AnalyzeRequest(BaseModel):
     content: str
     source_url: str
-    domain: Optional[Domain] = None
+    domain: Domain | None = None

@@ -1,6 +1,18 @@
+from importlib import import_module
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from websocket_manager import manager
+
+
+def _load_manager():
+    try:
+        module = import_module("backend.websocket_manager")
+    except ModuleNotFoundError:
+        module = import_module("websocket_manager")
+    return module.manager
+
+
+manager = _load_manager()
 
 class BroadcastRequest(BaseModel):
     message: str
@@ -12,7 +24,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            await websocket.receive_text()
+            _ = await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
