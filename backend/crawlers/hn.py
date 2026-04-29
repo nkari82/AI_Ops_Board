@@ -12,18 +12,23 @@ class HackerNewsCrawler:
                     story_ids = await resp.json()
                 
                 stories = []
-                for story_id in story_ids[:limit]:
+                keywords = ["LLM", "Harness", "AI", "Performance", "Optimization", "Agent"]
+                for story_id in story_ids:
+                    if len(stories) >= limit:
+                        break
                     async with session.get(f"{self.BASE_URL}/item/{story_id}.json") as resp:
                         story = await resp.json()
-                        if story:
-                            stories.append({
-                                "title": story.get("title", ""),
-                                "link": story.get("url", f"https://news.ycombinator.com/item?id={story_id}"),
-                                "score": story.get("score", 0),
-                                "comments_count": story.get("descendants", 0),
-                                "by": story.get("by", ""),
-                                "time": story.get("time", 0)
-                            })
+                        if story and "title" in story:
+                            title = story["title"]
+                            if any(k.lower() in title.lower() for k in keywords):
+                                stories.append({
+                                    "title": title,
+                                    "link": story.get("url", f"https://news.ycombinator.com/item?id={story_id}"),
+                                    "score": story.get("score", 0),
+                                    "comments_count": story.get("descendants", 0),
+                                    "by": story.get("by", ""),
+                                    "time": story.get("time", 0)
+                                })
                 
                 return stories
         except Exception as e:

@@ -1,7 +1,18 @@
 import aiohttp
-from typing import Optional, Dict, Any, List
+from typing import List
 from config import settings
-import json
+
+
+def _join_url(base: str, path: str) -> str:
+    return f"{base.rstrip('/')}/{path.lstrip('/')}"
+
+
+class LLMRouterError(Exception):
+    def __init__(self, provider: str, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.provider = provider
+        self.status_code = status_code
+        self.message = message
 
 
 class LLMRouter:
@@ -10,7 +21,9 @@ class LLMRouter:
             "huggingface": self._call_huggingface,
             "groq": self._call_groq,
             "vllm": self._call_vllm,
-            "openrouter": self._call_openrouter
+            "openrouter": self._call_openrouter,
+            "pollinations": self._call_pollinations,
+            "gemini": self._call_gemini,
         }
     
     async def generate(
@@ -22,17 +35,19 @@ class LLMRouter:
     ) -> str:
         if provider not in self.providers:
             provider = "huggingface"
-        
+
         try:
             return await self.providers[provider](prompt, max_tokens, temperature)
+        except LLMRouterError:
+            raise
         except Exception as e:
-            return f"LLM 생성 실패: {str(e)}"
+            raise LLMRouterError(provider=provider, message=f"LLM 생성 실패: {str(e)}") from e
     
     async def _call_huggingface(self, prompt: str, max_tokens: int, temperature: float) -> str:
         if not settings.HUGGINGFACE_TOKEN:
-            return "Hugging Face API 토큰이 설정되지 않았습니다."
+            raise LLMRouterError("huggingface", "Hugging Face API 토큰이 설정되지 않았습니다.")
         
-        url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+        url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
         headers = {"Authorization": f"Bearer {settings.HUGGINGFACE_TOKEN}"}
         
         payload = {
@@ -50,11 +65,11 @@ class LLMRouter:
                     result = await resp.json()
                     if isinstance(result, list) and len(result) > 0:
                         return result[0].get("generated_text", "")
-                return f"API 오류: {resp.status}"
+                raise LLMRouterError("huggingface", f"API 오류: {resp.status}", status_code=resp.status)
     
     async def _call_groq(self, prompt: str, max_tokens: int, temperature: float) -> str:
         if not settings.GROQ_API_KEY:
-            return "Groq API 키가 설정되지 않았습니다."
+            raise LLMRouterError("groq", "Groq API 키가 설정되지 않았습니다.")
         
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -74,7 +89,7 @@ class LLMRouter:
                 if resp.status == 200:
                     result = await resp.json()
                     return result["choices"][0]["message"]["content"]
-                return f"API 오류: {resp.status}"
+                raise LLMRouterError("groq", f"API 오류: {resp.status}", status_code=resp.status)
     
     async def _call_vllm(self, prompt: str, max_tokens: int, temperature: float) -> str:
         url = f"{settings.VLLM_ENDPOINT}/chat/completions"
@@ -91,7 +106,7 @@ class LLMRouter:
                 if resp.status == 200:
                     result = await resp.json()
                     return result["choices"][0]["message"]["content"]
-                return f"vLLM 오류: {resp.status}"
+                raise LLMRouterError("vllm", f"vLLM 오류: {resp.status}", status_code=resp.status)
     
     async def embed(self, text: str) -> List[float]:
         # Using HuggingFace feature extraction
@@ -107,7 +122,7 @@ class LLMRouter:
 
     async def _call_openrouter(self, prompt: str, max_tokens: int, temperature: float) -> str:
         if not settings.OPENROUTER_API_KEY:
-            return "OpenRouter API 키가 설정되지 않았습니다."
+            raise LLMRouterError("openrouter", "OpenRouter API 키가 설정되지 않았습니다.")
         
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
@@ -127,4 +142,122 @@ class LLMRouter:
                 if resp.status == 200:
                     result = await resp.json()
                     return result["choices"][0]["message"]["content"]
-                return f"API 오류: {resp.status}"
+                raise LLMRouterError("openrouter", f"API 오류: {resp.status}", status_code=resp.status)
+
+    async def _call_pollinations(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        if not settings.POLLINATIONS_API_KEY:
+            raise LLMRouterError("pollinations", "Pollinations API 키가 설정되지 않았습니다.")
+
+        url = _join_url(settings.POLLINATIONS_BASE_URL, "/v1/chat/completions")
+        headers = {
+            "Authorization": f"Bearer {settings.POLLINATIONS_API_KEY}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "model": settings.POLLINATIONS_TEXT_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=payload) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    return result["choices"][0]["message"]["content"]
+                raise LLMRouterError("pollinations", f"API 오류: {resp.status}", status_code=resp.status)
+
+    async def _call_gemini(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        # Google AI Studio (Gemini) - Generative Language API
+        if not settings.GOOGLE_AI_STUDIO_KEY:
+            raise LLMRouterError("gemini", "Google AI Studio API 키가 설정되지 않았습니다.")
+
+        base_url = settings.GEMINI_BASE_URL or "https://generativelanguage.googleapis.com"
+        raw_model = (settings.GEMINI_MODEL or "gemini-flash-latest").strip()
+        # Normalize common old names
+        if raw_model in {"gemini-1.5-flash", "gemini-1.5-flash-latest"}:
+            raw_model = "gemini-flash-latest"
+
+        # API expects resource like "models/<name>"
+        model_resource = raw_model if raw_model.startswith("models/") else f"models/{raw_model}"
+
+        url = _join_url(
+            base_url,
+            f"/v1beta/{model_resource}:generateContent",
+        )
+        headers = {
+            "Content-Type": "application/json",
+            "X-goog-api-key": settings.GOOGLE_AI_STUDIO_KEY,
+        }
+
+        payload: dict[str, object] = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": max_tokens,
+            },
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=payload) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    candidates = result.get("candidates") or []
+                    if candidates:
+                        content = candidates[0].get("content") or {}
+                        parts = content.get("parts") or []
+                        if parts and isinstance(parts[0], dict) and "text" in parts[0]:
+                            return str(parts[0]["text"])
+                    return ""
+
+                # If model not found, query ListModels and retry with best flash model.
+                if resp.status == 404:
+                    try:
+                        list_url = _join_url(base_url, "/v1beta/models")
+                        async with session.get(list_url, headers=headers) as list_resp:
+                            if list_resp.status == 200:
+                                data = await list_resp.json()
+                                names = [m.get("name") for m in (data.get("models") or []) if isinstance(m, dict)]
+                                names = [n for n in names if isinstance(n, str)]
+                                preferred = None
+                                for cand in (
+                                    "models/gemini-flash-latest",
+                                    "models/gemini-2.0-flash",
+                                    "models/gemini-2.0-flash-001",
+                                ):
+                                    if cand in names:
+                                        preferred = cand
+                                        break
+                                if not preferred:
+                                    flash = [n for n in names if "gemini" in n and "flash" in n]
+                                    preferred = flash[0] if flash else (names[0] if names else None)
+
+                                if preferred and preferred != model_resource:
+                                    retry_url = _join_url(
+                                        base_url,
+                                        f"/v1beta/{preferred}:generateContent",
+                                    )
+                                    async with session.post(retry_url, headers=headers, json=payload) as retry_resp:
+                                        if retry_resp.status == 200:
+                                            retry_result = await retry_resp.json()
+                                            candidates = retry_result.get("candidates") or []
+                                            if candidates:
+                                                content = candidates[0].get("content") or {}
+                                                parts = content.get("parts") or []
+                                                if parts and isinstance(parts[0], dict) and "text" in parts[0]:
+                                                    return str(parts[0]["text"])
+                                            return ""
+                    except Exception:
+                        pass
+
+                # Gemini returns JSON error details; best-effort include it
+                try:
+                    err = await resp.json()
+                except Exception:
+                    err = None
+                raise LLMRouterError(
+                    "gemini",
+                    f"API 오류: {resp.status}" + (f" ({err})" if err else ""),
+                    status_code=resp.status,
+                )

@@ -1,9 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import select
 from typing import List, Dict, Any
 import logging
+from urllib.parse import urlparse
+
+from config import settings
 from models import CrawlRequest
 from db import get_db
 from db_models import CrawledPost
@@ -11,22 +13,69 @@ from celery_app import celery_app
 from crawlers.github import GithubCrawler
 from crawlers.hn import HackerNewsCrawler
 from crawlers.youtube import YoutubeCrawler
+from services.crawled_post_ingest import CrawledPostIngestService
 
 router = APIRouter(prefix="/crawl", tags=["crawl"])
 logger = logging.getLogger(__name__)
+
+
+def _parse_enabled_sources() -> set[str]:
+    raw = (getattr(settings, "CRAWL_ENABLED_SOURCES", "") or "").strip()
+    if not raw:
+        return {"reddit", "github", "hn", "youtube"}
+    return {item.strip().lower() for item in raw.split(",") if item.strip()}
+
+
+def _ensure_source_enabled(source_name: str) -> None:
+    enabled = _parse_enabled_sources()
+    if source_name.lower() not in enabled:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Crawl source '{source_name}' is disabled by CRAWL_ENABLED_SOURCES",
+        )
+
+
+def _parse_youtube_targets() -> list[str]:
+    raw = (getattr(settings, "YOUTUBE_TARGET_URLS", "") or "").strip()
+    if not raw:
+        return []
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _normalize_youtube_url(url: str) -> str:
+    parsed = urlparse((url or "").strip())
+    if not parsed.scheme:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{parsed.query}".rstrip("?")
+
+
+def _is_allowed_youtube_url(url: str) -> bool:
+    allowed = {_normalize_youtube_url(item) for item in _parse_youtube_targets()}
+    allowed.discard("")
+    if not allowed:
+        # if list is empty, treat as unrestricted
+        return True
+    return _normalize_youtube_url(url) in allowed
 
 @celery_app.task
 def background_crawl_reddit_task(subreddit: str, limit: int):
     import asyncio
     import httpx
     from crawlers.reddit import RedditCrawler
+    from db import async_session_maker
+    from services.crawled_post_ingest import CrawledPostIngestService
     
     # Broadcast start
     asyncio.run(httpx.AsyncClient().post("http://backend:8000/api/ws/broadcast", json={"message": f"Crawl started for {subreddit}"}))
     
     async def _run():
         crawler = RedditCrawler()
-        return await crawler.crawl(subreddit, limit)
+        results = await crawler.crawl(subreddit, limit)
+        async with async_session_maker() as db:
+            service = CrawledPostIngestService()
+            await service.ingest_items(db, results, source_name="reddit", context={"subreddit": subreddit})
+            await db.commit()
+        return results
     
     result = asyncio.run(_run())
     
@@ -40,33 +89,20 @@ def background_crawl_youtube_task(url: str):
     import asyncio
     from crawlers.youtube import YoutubeCrawler
     from db import async_session_maker
-    from db_models import CrawledPost
-    import sys
-    sys.path.append("/app")
     from services.knowledge_manager import KnowledgeManager
+    from services.crawled_post_ingest import CrawledPostIngestService
     
     async def _run():
         crawler = YoutubeCrawler()
         result = await crawler.crawl(url)
         if result:
             async with async_session_maker() as db:
-                post = CrawledPost(
-                    title=result["title"],
-                    url=result["url"],
-                    source=f"youtube:{url}",
-                    source_type="youtube",
-                    content=result["content"],
-                    score=0,
-                    extra_data={},
-                    domain="기타"
-                )
-                db.add(post)
+                service = CrawledPostIngestService()
+                posts = await service.ingest_items(db, [result], source_name="youtube", context={"url": url})
                 await db.commit()
-                await db.refresh(post)
-                
-                # AI 분석 파이프라인 연동
-                km = KnowledgeManager()
-                await km.generate_knowledge_cards(db, new_post=post)
+                if posts:
+                    km = KnowledgeManager()
+                    await km.generate_knowledge_cards(db, new_post=posts[0])
                 
         return result
     
@@ -82,17 +118,41 @@ def detect_domain(text: str) -> str:
     return '기타'
 @router.post("/reddit")
 async def crawl_reddit(request: CrawlRequest, db: AsyncSession = Depends(get_db)):
+    _ensure_source_enabled("reddit")
     subreddit = request.subreddit or "LocalLLaMA"
     task = background_crawl_reddit_task.delay(subreddit, request.limit)
     return {"task_id": task.id, "message": "Crawl task started", "subreddit": subreddit}
 
 @router.post("/youtube")
 async def crawl_youtube(request: Dict[str, str]):
+    _ensure_source_enabled("youtube")
     url = request.get("url")
     if not url:
         raise HTTPException(status_code=400, detail="URL required")
+    if not _is_allowed_youtube_url(url):
+        raise HTTPException(status_code=403, detail="URL is not allowed by YOUTUBE_TARGET_URLS")
     task = background_crawl_youtube_task.delay(url)
-    return {"task_id": task.id, "message": "YouTube crawl task started"}
+    return {"task_id": task.id, "message": "YouTube crawl task started", "url": url}
+
+
+@router.post("/youtube/from-env")
+async def crawl_youtube_from_env():
+    _ensure_source_enabled("youtube")
+    targets = _parse_youtube_targets()
+    if not targets:
+        raise HTTPException(status_code=400, detail="YOUTUBE_TARGET_URLS is empty")
+
+    task_ids: list[str] = []
+    for url in targets:
+        task = background_crawl_youtube_task.delay(url)
+        task_ids.append(task.id)
+
+    return {
+        "message": "YouTube crawl tasks started from env list",
+        "count": len(task_ids),
+        "task_ids": task_ids,
+        "targets": targets,
+    }
 
 
 @router.get("/status/{task_id}")
@@ -108,34 +168,13 @@ async def get_crawl_status(task_id: str):
 
 @router.post("/github")
 async def crawl_github(limit: int = 10, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+    _ensure_source_enabled("github")
     try:
         crawler = GithubCrawler()
+        service = CrawledPostIngestService()
         
         results = await crawler.crawl_trending(limit)
-        
-        for item in results:
-            stmt = insert(CrawledPost).values(
-                title=item.get("name", ""),
-                url=item.get("html_url", ""),
-                source="github:trending",
-                source_type="github",
-                content=item.get("description", ""),
-                score=item.get("stargazers_count", 0),
-                extra_data={"language": item.get("language"), "topics": item.get("topics")},
-                domain=detect_domain(item.get("description", ""))
-            )
-            stmt = stmt.on_conflict_do_update(
-                constraint='uix_crawled_post_url',
-                set_={
-                    "title": stmt.excluded.title,
-                    "content": stmt.excluded.content,
-                    "score": stmt.excluded.score,
-                    "extra_data": stmt.excluded.extra_data,
-                }
-            )
-            await db.execute(stmt)
-        
-        await db.commit()
+        await service.ingest_items(db, results, source_name="github")
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"GitHub crawl failed: {str(e)}")
@@ -143,36 +182,15 @@ async def crawl_github(limit: int = 10, db: AsyncSession = Depends(get_db)) -> L
 
 @router.post("/hn")
 async def crawl_hackernews(limit: int = 10, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+    _ensure_source_enabled("hn")
     try:
         logger.info(f"Starting HackerNews crawl with limit={limit}")
         crawler = HackerNewsCrawler()
+        service = CrawledPostIngestService()
         
         results = await crawler.crawl_top_stories(limit)
         logger.info(f"HackerNews crawl finished. Fetched {len(results)} items.")
-        
-        for item in results:
-            stmt = insert(CrawledPost).values(
-                title=item.get("title", ""),
-                url=item.get("link", ""),
-                source="hackernews:top",
-                source_type="hn",
-                content="",
-                score=item.get("score", 0),
-                extra_data={"by": item.get("by"), "comments_count": item.get("comments_count")},
-                domain=detect_domain(item.get("title", ""))
-            )
-            stmt = stmt.on_conflict_do_update(
-                constraint='uix_crawled_post_url',
-                set_={
-                    "title": stmt.excluded.title,
-                    "content": stmt.excluded.content,
-                    "score": stmt.excluded.score,
-                    "extra_data": stmt.excluded.extra_data,
-                }
-            )
-            await db.execute(stmt)
-        
-        await db.commit()
+        await service.ingest_items(db, results, source_name="hn")
         logger.info("Successfully committed HackerNews posts to DB.")
         return results
     except Exception as e:
