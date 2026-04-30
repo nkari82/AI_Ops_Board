@@ -345,12 +345,40 @@ async def get_recommendations(
             if normalized_dev_language:
                 combo_boost += 2
 
-        score = min(100, score + cap_combo_boost(combo_boost, evidence_count))
-        score = apply_sparse_data_score_guard(score, evidence_count)
+        capped_combo_boost = cap_combo_boost(combo_boost, evidence_count)
+        score_before_sparse_guard = min(100, score + capped_combo_boost)
+        score_after_sparse_guard = apply_sparse_data_score_guard(score_before_sparse_guard, evidence_count)
+        sparse_penalty_applied = score_after_sparse_guard < score_before_sparse_guard
+        score = score_after_sparse_guard
+
         quality_confidence = compute_quality_confidence(evidence_count, feedback_count)
         quality_band = quality_band_from_confidence(quality_confidence)
 
+        evidence_highlights = [
+            f"{(getattr(post, 'title', '') or '').strip()[:72]} | cat={((getattr(post, 'category', '') or 'N/A').strip() or 'N/A')}"
+            for post in domain_posts[:3]
+            if isinstance(getattr(post, 'title', None), str) and (getattr(post, 'title', '').strip())
+        ]
+        if not evidence_highlights:
+            evidence_highlights = ["근거 데이터가 부족하여 기본 추천 로직을 사용했습니다."]
+
         dynamic_subagents, dynamic_views, official_categories = _derive_dynamic_harness_metadata(domain_posts, domain=domain)
+
+        recommendation_snapshot = {
+            "computedAt": datetime.now(timezone.utc).isoformat(),
+            "domain": domain,
+            "inputFilters": {
+                "clientEngine": normalized_client_engine,
+                "gameGenre": normalized_game_genre,
+                "devLanguage": normalized_dev_language,
+            },
+            "evidenceCount": evidence_count,
+            "feedbackCount": feedback_count,
+            "topCategories": top_categories[:3],
+            "topTech": top_tech[:5],
+            "selectedModels": selected_models[:4],
+            "selectedWorkflow": selected_workflow[:4],
+        }
 
         settings.append(
             {
@@ -377,9 +405,18 @@ async def get_recommendations(
                 "feedbackCount": feedback_count,
                 "qualityConfidence": quality_confidence,
                 "qualityBand": quality_band,
+                "scoreBreakdown": {
+                    "baseScore": base_score,
+                    "feedbackBonus": feedback_bonus,
+                    "comboBoost": capped_combo_boost,
+                    "sparsePenaltyApplied": sparse_penalty_applied,
+                    "finalScore": score,
+                },
+                "evidenceHighlights": evidence_highlights,
                 "subagentCandidates": dynamic_subagents,
                 "dynamicViews": dynamic_views,
                 "officialCategories": official_categories,
+                "recommendationSnapshot": recommendation_snapshot,
             }
         )
 

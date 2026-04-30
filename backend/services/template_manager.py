@@ -44,6 +44,28 @@ class TemplateManager:
     def __init__(self):
         self.llm_router = LLMRouter()
 
+    def _validate_required_files(self, bundle: dict[str, str], harness_type: str) -> None:
+        if harness_type == "ClaudeCode":
+            required_files = {
+                ".claude/CLAUDE.md",
+                ".claude/settings.json",
+                ".claude/Rule.md",
+                ".claude/commands/start-work.md",
+            }
+        else:
+            required_files = {
+                "opencode.jsonc",
+                ".opencode/AGENTS.md",
+                ".opencode/Rule.md",
+                ".opencode/commands/start-work.md",
+            }
+
+        missing = sorted(path for path in required_files if path not in bundle)
+        if missing:
+            raise RuntimeError(
+                f"Template bundle integrity check failed ({harness_type}): missing required files: {', '.join(missing)}"
+            )
+
     def _fallback_unified_ops(self, domain: str, knowledge_list: list[dict[str, Any]]) -> str:
         snippets = [
             f"- {k.get('title', '')}: {(k.get('summary') or k.get('content') or '')[:140]}"
@@ -244,8 +266,40 @@ class TemplateManager:
             + ("\n## 추천 Rules\n" + "\n".join([f"- {r}" for r in rules[:10]]) + "\n" if rules else "")
         )
 
+        def _slugify(text: str) -> str:
+            slug = re.sub(r"[^a-z0-9가-힣]+", "-", text.lower()).strip("-")
+            return slug or "unnamed"
+
+        def _derive_skill_folder_name(item: str, idx: int, used: set[str]) -> str:
+            item_tokens = re.findall(r"[A-Za-z][A-Za-z0-9_+-]{2,}|[가-힣]{2,}", item)
+            item_token_set = {t.lower() for t in item_tokens}
+            matched_topic = next((t for t in top_topics if t in item_token_set), "")
+            category_hint = top_categories[idx % len(top_categories)] if top_categories else ""
+            source_hint = top_sources[idx % len(top_sources)] if top_sources else ""
+
+            base = _slugify(item)
+            hint_parts = [_slugify(x) for x in [matched_topic, category_hint, source_hint] if x]
+            hint = "-".join([part for part in hint_parts if part and part != base])
+            candidate = f"skill-{idx+1:02d}-{base}{('-' + hint) if hint else ''}"
+
+            if candidate in used:
+                suffix = 2
+                next_candidate = f"{candidate}-{suffix}"
+                while next_candidate in used:
+                    suffix += 1
+                    next_candidate = f"{candidate}-{suffix}"
+                candidate = next_candidate
+
+            used.add(candidate)
+            return candidate
+
+        used_skill_folders: set[str] = set()
+        dynamic_skill_folder_names: list[tuple[str, str]] = []
+        for idx, item in enumerate(mcp[:12]):
+            dynamic_skill_folder_names.append((item, _derive_skill_folder_name(item, idx, used_skill_folders)))
+
         dynamic_skill_files = {
-            f"skill-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}/SKILL.md": (
+            f"{folder}/SKILL.md": (
                 "---\n"
                 f"name: {item}\n"
                 "description: recommendation-driven domain skill\n"
@@ -253,13 +307,24 @@ class TemplateManager:
                 f"# Skill {idx+1}: {item}\n\n"
                 f"- domain: {domain}\n"
                 f"- harness: {harness_type}\n"
+                f"- derived-folder: {folder}\n"
                 "- 목적: 추천 셋팅 기반 운영 액션 표준화\n"
             )
-            for idx, item in enumerate(mcp[:12])
+            for idx, (item, folder) in enumerate(dynamic_skill_folder_names)
         }
 
+        opencode_category_folder_names: list[tuple[str, str]] = []
+        for idx, item in enumerate(official_opencode_categories[:16]):
+            folder = _derive_skill_folder_name(f"category-{item}", idx, used_skill_folders)
+            opencode_category_folder_names.append((item, folder))
+
+        claude_category_folder_names: list[tuple[str, str]] = []
+        for idx, item in enumerate(official_claude_categories[:16]):
+            folder = _derive_skill_folder_name(f"category-{item}", idx, used_skill_folders)
+            claude_category_folder_names.append((item, folder))
+
         opencode_category_files = {
-            f".opencode/skills/category-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}/SKILL.md": (
+            f".opencode/skills/{folder}/SKILL.md": (
                 "---\n"
                 f"name: {item}\n"
                 "description: official category aligned skill\n"
@@ -267,13 +332,14 @@ class TemplateManager:
                 f"# OpenCode Category: {item}\n\n"
                 "- source: https://opencode.ai/docs/configuration\n"
                 f"- domain: {domain}\n"
+                f"- derived-folder: {folder}\n"
                 "- objective: .opencode 운영 셋팅 카테고리 표준화\n"
             )
-            for idx, item in enumerate(official_opencode_categories[:16])
+            for item, folder in opencode_category_folder_names
         }
 
         claude_category_files = {
-            f".claude/skills/category-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}/SKILL.md": (
+            f".claude/skills/{folder}/SKILL.md": (
                 "---\n"
                 f"name: {item}\n"
                 "description: official category aligned skill\n"
@@ -281,9 +347,10 @@ class TemplateManager:
                 f"# Claude Category: {item}\n\n"
                 "- source: https://docs.anthropic.com/en/docs/claude-code\n"
                 f"- domain: {domain}\n"
+                f"- derived-folder: {folder}\n"
                 "- objective: .claude 운영 셋팅 카테고리 표준화\n"
             )
-            for idx, item in enumerate(official_claude_categories[:16])
+            for item, folder in claude_category_folder_names
         }
 
         if harness_type == "ClaudeCode":
@@ -334,7 +401,7 @@ class TemplateManager:
                 "- 규칙 위반(as any, ts-ignore) 점검\n"
             )
 
-            return {
+            bundle = {
                 ".claude/README.md": readme,
                 ".claude/CLAUDE.md": claude_md,
                 ".claude/settings.json": claude_settings,
@@ -347,6 +414,8 @@ class TemplateManager:
                 **claude_dynamic_skills,
                 **claude_category_files,
             }
+            self._validate_required_files(bundle, "ClaudeCode")
+            return bundle
 
         opencode_agent_catalog = {
             "planner": {
@@ -486,7 +555,7 @@ class TemplateManager:
             for path, content in dynamic_skill_files.items()
         }
 
-        return {
+        bundle = {
             ".opencode/README.md": readme,
             ".opencode/AGENTS.md": agents_md,
             ".opencode/Rule.md": rule_md,
@@ -499,6 +568,8 @@ class TemplateManager:
             **opencode_dynamic_skills,
             **opencode_category_files,
         }
+        self._validate_required_files(bundle, "OpenCode")
+        return bundle
 
     async def generate_template_from_knowledge(self, domain: str, knowledge_list: list[dict[str, Any]]) -> str:
         knowledge_summary = "\n".join(

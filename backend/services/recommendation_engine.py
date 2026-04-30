@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from importlib import import_module
@@ -237,10 +238,20 @@ class RecommendationEngine:
             base_score = min(100, 40 + evidence_count * 3)
             feedback_bonus = int((avg_feedback - 3.0) * 8) if feedback_rows else 0
             score = max(0, min(100, base_score + feedback_bonus))
+            score_before_sparse_guard = score
             score = apply_sparse_data_score_guard(score, evidence_count)
+            sparse_penalty_applied = score < score_before_sparse_guard
 
             quality_confidence = compute_quality_confidence(evidence_count, feedback_count)
             quality_band = quality_band_from_confidence(quality_confidence)
+
+            evidence_highlights = [
+                f"{(getattr(post, 'title', '') or '').strip()[:72]} | cat={((getattr(post, 'category', '') or 'N/A').strip() or 'N/A')}"
+                for post in domain_posts[:3]
+                if isinstance(getattr(post, 'title', None), str) and (getattr(post, 'title', '').strip())
+            ]
+            if not evidence_highlights:
+                evidence_highlights = ["근거 데이터가 부족하여 기본 추천 로직을 사용했습니다."]
 
             baseline = get_domain_baseline(domain)
             baseline_version = int(baseline.get("baselineVersion") or 1)
@@ -268,6 +279,22 @@ class RecommendationEngine:
 
             dynamic_subagents, dynamic_views, official_categories = _derive_dynamic_harness_metadata(domain_posts, domain=domain)
 
+            recommendation_snapshot = {
+                "computedAt": datetime.now(timezone.utc).isoformat(),
+                "domain": domain,
+                "inputFilters": {
+                    "clientEngine": "",
+                    "gameGenre": "",
+                    "devLanguage": "",
+                },
+                "evidenceCount": evidence_count,
+                "feedbackCount": feedback_count,
+                "topCategories": top_categories[:3],
+                "topTech": top_tech[:5],
+                "selectedModels": list(baseline.get("modelRouting") or [])[:4],
+                "selectedWorkflow": list(baseline.get("workflow") or [])[:4],
+            }
+
             settings.append(
                 {
                     "domain": domain,
@@ -286,11 +313,20 @@ class RecommendationEngine:
                     "feedbackCount": feedback_count,
                     "qualityConfidence": quality_confidence,
                     "qualityBand": quality_band,
+                    "scoreBreakdown": {
+                        "baseScore": base_score,
+                        "feedbackBonus": feedback_bonus,
+                        "comboBoost": 0,
+                        "sparsePenaltyApplied": sparse_penalty_applied,
+                        "finalScore": score,
+                    },
+                    "evidenceHighlights": evidence_highlights,
                     "evidenceLatestUpdatedAt": evidence_latest_iso,
                     "signature": signature,
                     "subagentCandidates": dynamic_subagents,
                     "dynamicViews": dynamic_views,
                     "officialCategories": official_categories,
+                    "recommendationSnapshot": recommendation_snapshot,
                 }
             )
 
