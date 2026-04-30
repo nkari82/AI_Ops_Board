@@ -24,7 +24,13 @@ try:
         compute_quality_confidence,
         quality_band_from_confidence,
     )
-    from backend.services.recommendation_runtime import load_cached_settings, get_latest_post_updated_at, save_cached_settings
+    from backend.services.recommendation_runtime import (
+        build_snapshot_id,
+        get_latest_post_updated_at,
+        load_cached_settings,
+        save_cached_settings,
+        upsert_snapshot,
+    )
 except ModuleNotFoundError:
     from services.llm_router import LLMRouter
     from services.recommendation_baselines import get_domain_baseline, merge_unique
@@ -33,7 +39,13 @@ except ModuleNotFoundError:
         compute_quality_confidence,
         quality_band_from_confidence,
     )
-    from services.recommendation_runtime import load_cached_settings, get_latest_post_updated_at, save_cached_settings
+    from services.recommendation_runtime import (
+        build_snapshot_id,
+        get_latest_post_updated_at,
+        load_cached_settings,
+        save_cached_settings,
+        upsert_snapshot,
+    )
 
 try:
     CrawledPost = import_module("backend.db_models").CrawledPost
@@ -294,6 +306,8 @@ class RecommendationEngine:
                 "selectedModels": list(baseline.get("modelRouting") or [])[:4],
                 "selectedWorkflow": list(baseline.get("workflow") or [])[:4],
             }
+            snapshot_id = build_snapshot_id(recommendation_snapshot)
+            upsert_snapshot(snapshot_id, recommendation_snapshot)
 
             settings.append(
                 {
@@ -327,6 +341,7 @@ class RecommendationEngine:
                     "dynamicViews": dynamic_views,
                     "officialCategories": official_categories,
                     "recommendationSnapshot": recommendation_snapshot,
+                    "recommendationSnapshotId": snapshot_id,
                 }
             )
 

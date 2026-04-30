@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,7 @@ except ModuleNotFoundError:
     from db_models import CrawledPost
 
 _CACHE_PATH = Path(__file__).resolve().parents[1] / "data" / "recommendation_settings_cache.json"
+_SNAPSHOT_PATH = Path(__file__).resolve().parents[1] / "data" / "recommendation_snapshots.json"
 
 
 def _utc_now_iso() -> str:
@@ -60,3 +62,41 @@ def is_cache_fresh(cache_payload: dict[str, Any] | None, latest_post_updated_at:
     if latest_post_updated_at is None:
         return True
     return cached_marker == latest_post_updated_at
+
+
+def build_snapshot_id(snapshot: dict[str, Any]) -> str:
+    canonical = {
+        "domain": snapshot.get("domain"),
+        "inputFilters": snapshot.get("inputFilters") or {},
+        "evidenceCount": snapshot.get("evidenceCount"),
+        "feedbackCount": snapshot.get("feedbackCount"),
+        "topCategories": snapshot.get("topCategories") or [],
+        "topTech": snapshot.get("topTech") or [],
+        "selectedModels": snapshot.get("selectedModels") or [],
+        "selectedWorkflow": snapshot.get("selectedWorkflow") or [],
+    }
+    raw = json.dumps(canonical, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def load_snapshot_store() -> dict[str, dict[str, Any]]:
+    if not _SNAPSHOT_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return {}
+        return {k: v for k, v in payload.items() if isinstance(k, str) and isinstance(v, dict)}
+    except Exception:
+        return {}
+
+
+def upsert_snapshot(snapshot_id: str, snapshot: dict[str, Any]) -> None:
+    _SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    store = load_snapshot_store()
+    store[snapshot_id] = {
+        **snapshot,
+        "snapshotId": snapshot_id,
+        "storedAt": _utc_now_iso(),
+    }
+    _SNAPSHOT_PATH.write_text(json.dumps(store, ensure_ascii=False, indent=2), encoding="utf-8")

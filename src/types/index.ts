@@ -131,4 +131,20 @@ export type RecommendedSetting = {
     opencode: string[];
     claudecode: string[];
   };
+  recommendationSnapshot?: {
+    computedAt: string;
+    domain: string;
+    inputFilters: {
+      clientEngine: string;
+      gameGenre: string;
+      devLanguage: string;
+    };
+    evidenceCount: number;
+    feedbackCount: number;
+    topCategories: string[];
+    topTech: string[];
+    selectedModels: string[];
+    selectedWorkflow: string[];
+  };
+  recommendationSnapshotId?: string;
 };

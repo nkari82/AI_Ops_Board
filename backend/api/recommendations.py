@@ -29,7 +29,14 @@ try:
         compute_quality_confidence,
         quality_band_from_confidence,
     )
-    from backend.services.recommendation_runtime import get_latest_post_updated_at, is_cache_fresh, load_cached_settings
+    from backend.services.recommendation_runtime import (
+        build_snapshot_id,
+        get_latest_post_updated_at,
+        is_cache_fresh,
+        load_cached_settings,
+        load_snapshot_store,
+        upsert_snapshot,
+    )
 except ModuleNotFoundError:
     from db import get_db
     from db_models import CrawledPost
@@ -40,7 +47,14 @@ except ModuleNotFoundError:
         compute_quality_confidence,
         quality_band_from_confidence,
     )
-    from services.recommendation_runtime import get_latest_post_updated_at, is_cache_fresh, load_cached_settings
+    from services.recommendation_runtime import (
+        build_snapshot_id,
+        get_latest_post_updated_at,
+        is_cache_fresh,
+        load_cached_settings,
+        load_snapshot_store,
+        upsert_snapshot,
+    )
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 recommendation_engine = RecommendationEngine()
@@ -379,6 +393,8 @@ async def get_recommendations(
             "selectedModels": selected_models[:4],
             "selectedWorkflow": selected_workflow[:4],
         }
+        snapshot_id = build_snapshot_id(recommendation_snapshot)
+        upsert_snapshot(snapshot_id, recommendation_snapshot)
 
         settings.append(
             {
@@ -417,6 +433,7 @@ async def get_recommendations(
                 "dynamicViews": dynamic_views,
                 "officialCategories": official_categories,
                 "recommendationSnapshot": recommendation_snapshot,
+                "recommendationSnapshotId": snapshot_id,
             }
         )
 
@@ -433,6 +450,30 @@ async def refresh_recommendations(
         "status": "ok",
         "trigger": trigger,
         "count": len(settings),
+    }
+
+
+@router.get("/snapshots/{snapshot_id}")
+async def get_recommendation_snapshot(snapshot_id: str) -> dict[str, Any]:
+    store = load_snapshot_store()
+    snapshot = store.get(snapshot_id)
+    if not isinstance(snapshot, dict):
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    return snapshot
+
+
+@router.post("/replay")
+async def replay_recommendation_snapshot(snapshot_id: str = Query(..., min_length=6)) -> dict[str, Any]:
+    store = load_snapshot_store()
+    snapshot = store.get(snapshot_id)
+    if not isinstance(snapshot, dict):
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    return {
+        "status": "ok",
+        "snapshotId": snapshot_id,
+        "snapshot": snapshot,
+        "replayHint": "Use snapshot.domain and snapshot.inputFilters to request /api/recommendations with identical filters.",
     }
 
 
