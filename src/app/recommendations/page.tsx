@@ -326,20 +326,16 @@ export default function RecommendationsPage() {
     return unique;
   }, [active]);
 
-  React.useEffect(() => {
-    if (!subagentViews.length) return;
-    const current = subagentViews.find((v) => v.label === selectedSubagentLabel);
-    if (!current) {
-      setSelectedSubagentView(subagentViews[0].key);
-      setSelectedSubagentLabel(subagentViews[0].label);
-    }
-  }, [subagentViews, selectedSubagentLabel]);
+  const activeSubagentSelection = useMemo(() => {
+    const current = subagentViews.find((v) => v.key === selectedSubagentView && v.label === selectedSubagentLabel);
+    return current ?? subagentViews[0] ?? null;
+  }, [subagentViews, selectedSubagentView, selectedSubagentLabel]);
 
   const effectiveView: HarnessView =
     activeView === "subagentPlanner" || activeView === "subagentImplementer" || activeView === "subagentReviewer"
       ? activeView
       : activeView === "subagentsManager"
-        ? selectedSubagentView
+        ? (activeSubagentSelection?.key ?? selectedSubagentView)
         : activeView;
 
   const renderedContent = useMemo(
@@ -367,21 +363,22 @@ export default function RecommendationsPage() {
 
   const activeSelectValue = useMemo(() => {
     if (activeView === "subagentPlanner" || activeView === "subagentImplementer" || activeView === "subagentReviewer") {
-      return `${activeView}||${selectedSubagentLabel}`;
+      const fallbackLabel = activeSubagentSelection?.label ?? selectedSubagentLabel;
+      return `${activeView}||${fallbackLabel}`;
     }
     const selected = visibleViews.find((view) => view.key === activeView);
     return selected ? `${selected.key}||${selected.label}` : "";
-  }, [activeView, selectedSubagentLabel, visibleViews]);
+  }, [activeView, activeSubagentSelection, selectedSubagentLabel, visibleViews]);
 
   const activeViewLabel = useMemo(() => {
     if (activeView === "subagentPlanner" || activeView === "subagentImplementer" || activeView === "subagentReviewer") {
-      return selectedSubagentLabel;
+      return activeSubagentSelection?.label ?? selectedSubagentLabel;
     }
     if (activeView === "subagentsManager") {
-      return `Subagents / ${selectedSubagentLabel}`;
+      return `Subagents / ${activeSubagentSelection?.label ?? selectedSubagentLabel}`;
     }
     return visibleViews.find((v) => v.key === activeView)?.label ?? activeView;
-  }, [visibleViews, activeView, selectedSubagentLabel]);
+  }, [visibleViews, activeView, activeSubagentSelection, selectedSubagentLabel]);
 
   const handleDownloadZip = async () => {
     if (!active) return;
@@ -588,7 +585,6 @@ export default function RecommendationsPage() {
                 <RecommendedSettingCard
                   settings={settings}
                   activeSetting={resolvedDomainForApi}
-                  onSelectSetting={setActiveDomain}
                 />
               </div>
             </section>

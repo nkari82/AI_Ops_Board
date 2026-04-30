@@ -2,21 +2,17 @@ import React from "react";
 import type { Domain, RecommendedSetting } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { InfoBlock } from "@/components/shared/InfoBlock";
-import { DomainIcon } from "@/components/shared/DomainIcon";
-import { cn } from "@/lib/utils";
 import { Bot, Flame, GitBranch, Network, Wrench } from "lucide-react";
 import { motion } from "framer-motion";
 
 interface RecommendedSettingCardProps {
   settings: RecommendedSetting[];
   activeSetting: Domain;
-  onSelectSetting: (domain: Domain) => void;
 }
 
 export function RecommendedSettingCard({
   settings,
   activeSetting,
-  onSelectSetting,
 }: RecommendedSettingCardProps) {
   const setting = settings.find((item) => item.domain === activeSetting) ?? settings[0];
 
@@ -33,23 +29,6 @@ export function RecommendedSettingCard({
                 {setting.score ?? 0}
               </span>
             )}
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {settings.map((item) => (
-              <button
-                key={item.domain}
-                onClick={() => onSelectSetting(item.domain)}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition",
-                  activeSetting === item.domain
-                    ? "bg-white text-slate-950"
-                    : "bg-white/10 text-slate-200 hover:bg-white/15"
-                )}
-              >
-                <DomainIcon domain={item.domain} /> {item.domain}
-              </button>
-            ))}
           </div>
 
           {setting && (

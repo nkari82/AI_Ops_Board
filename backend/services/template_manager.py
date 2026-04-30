@@ -178,27 +178,12 @@ class TemplateManager:
             + ("\n## 추천 Rules\n" + "\n".join([f"- {r}" for r in rules[:10]]) + "\n" if rules else "")
         )
 
-        skill_md = (
-            f"# SKILL.md ({domain})\n\n"
-            "## 권장 운영 Skill\n"
-            "- Crawl 품질 점검\n"
-            "- Analyzer 결과 검증\n"
-            "- Recommendation cache refresh 모니터링\n"
-            "- Template 다운로드 산출물 검수\n"
-            + ("\n## Plugin/MCP\n" + "\n".join([f"- {x}" for x in mcp[:12]]) + "\n" if mcp else "")
-        )
-
-        base_bundle = {
-            "unified-ops.md": unified_ops,
-            "AGENTS.md": agents_md,
-            "Rule.md": rule_md,
-            "SKILL.md": skill_md,
-            "README.md": readme,
-            "clone.sh": clone_script,
-        }
-
         dynamic_skill_files = {
-            f"skills/skill-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}.md": (
+            f"skill-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}/SKILL.md": (
+                "---\n"
+                f"name: {item}\n"
+                "description: recommendation-driven domain skill\n"
+                "---\n\n"
                 f"# Skill {idx+1}: {item}\n\n"
                 f"- domain: {domain}\n"
                 f"- harness: {harness_type}\n"
@@ -207,20 +192,14 @@ class TemplateManager:
             for idx, item in enumerate(mcp[:12])
         }
 
-        dynamic_rule_files = {
-            f"rules/rule-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}.md": (
-                f"# Rule {idx+1}: {item}\n\n"
-                f"- domain: {domain}\n"
-                f"- harness: {harness_type}\n"
-                "- 준수: build/smoke 통과 전 배포 금지\n"
-            )
-            for idx, item in enumerate(rules[:12])
-        }
-
         opencode_category_files = {
-            f".opencode/categories/category-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}.md": (
+            f".opencode/skills/category-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}/SKILL.md": (
+                "---\n"
+                f"name: {item}\n"
+                "description: official category aligned skill\n"
+                "---\n\n"
                 f"# OpenCode Category: {item}\n\n"
-                "- source: opencode-ai/opencode official docs/schema\n"
+                "- source: https://opencode.ai/docs/config\n"
                 f"- domain: {domain}\n"
                 "- objective: .opencode 운영 셋팅 카테고리 표준화\n"
             )
@@ -228,9 +207,13 @@ class TemplateManager:
         }
 
         claude_category_files = {
-            f".claude/categories/category-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}.md": (
+            f".claude/skills/category-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}/SKILL.md": (
+                "---\n"
+                f"name: {item}\n"
+                "description: official category aligned skill\n"
+                "---\n\n"
                 f"# Claude Category: {item}\n\n"
-                "- source: Anthropic official capability docs (Skills/Memory/Tools/MCP)\n"
+                "- source: https://code.claude.com/docs/en/configuration\n"
                 f"- domain: {domain}\n"
                 "- objective: .claude 운영 셋팅 카테고리 표준화\n"
             )
@@ -238,39 +221,26 @@ class TemplateManager:
         }
 
         if harness_type == "ClaudeCode":
-            claude_config = json.dumps(
+            claude_settings = json.dumps(
                 {
-                    "domain": domain,
-                    "harnessType": "ClaudeCode",
-                    "modelRouting": model_routing,
-                    "workflow": workflow,
-                    "mcp": mcp,
-                    "rules": rules,
-                    "reason": reason,
-                    "officialCategories": official_claude_categories,
+                    "$schema": "https://json.schemastore.org/claude-code-settings.json",
+                    "env": {"OPS_DOMAIN": domain},
+                    "model": model_routing[0] if model_routing else "",
                     "permissions": {"mode": "plan"},
                 },
                 ensure_ascii=False,
                 indent=2,
             )
-            claude_planner = (
-                f"# Subagent Planner ({domain})\n\n"
-                "## Goal\n- 요구사항을 작업 단위로 분해\n\n"
+            claude_md = (
+                f"# CLAUDE.md ({domain})\n\n"
+                "## Goal\n"
+                "- 추천 셋팅 기반 하네스 운영\n\n"
                 "## Workflow\n"
                 + ("\n".join([f"- {step}" for step in workflow[:10]]) if workflow else "- 기본 워크플로우 사용")
-                + "\n"
-            )
-            claude_implementer = (
-                f"# Subagent Implementer ({domain})\n\n"
-                "## Goal\n- 계획을 코드/설정 변경으로 구현\n\n"
+                + "\n\n"
                 "## Rules\n"
                 + ("\n".join([f"- {r}" for r in rules[:12]]) if rules else "- 기본 규칙 사용")
                 + "\n"
-            )
-            claude_reviewer = (
-                f"# Subagent Reviewer ({domain})\n\n"
-                "## Goal\n- 빌드/스모크/품질 게이트 검증\n\n"
-                "## Checklist\n- npm run build\n- npm run smoke:api\n- release:full/deep\n"
             )
             claude_dynamic_agents = {
                 f".claude/agents/dynamic-{idx+1:02d}.md": (
@@ -280,43 +250,40 @@ class TemplateManager:
                 )
                 for idx, name in enumerate(subagent_candidates[:12])
             }
-
             claude_dynamic_skills = {
-                path.replace("skills/", ".claude/skills/"): content
+                f".claude/skills/{path}": content
                 for path, content in dynamic_skill_files.items()
-            }
-            claude_dynamic_rules = {
-                path.replace("rules/", ".claude/rules/"): content
-                for path, content in dynamic_rule_files.items()
             }
 
             return {
-                **base_bundle,
-                ".claude/config.json": claude_config,
-                ".claude/agents/planner.md": claude_planner,
-                ".claude/agents/implementer.md": claude_implementer,
-                ".claude/agents/reviewer.md": claude_reviewer,
-                ".claude/rules/domain-rules.md": rule_md,
+                ".claude/README.md": readme,
+                ".claude/CLAUDE.md": claude_md,
+                ".claude/settings.json": claude_settings,
+                ".claude/unified-ops.md": unified_ops,
+                ".claude/Rule.md": rule_md,
+                ".claude/clone.sh": clone_script,
                 **claude_dynamic_agents,
                 **claude_dynamic_skills,
-                **claude_dynamic_rules,
                 **claude_category_files,
             }
 
-        opencode_jsonc = json.dumps(
+        opencode_config = json.dumps(
             {
-                "domain": domain,
-                "harnessType": "OpenCode",
-                "agents": ["Sisyphus-Junior", "Explore", "Librarian", "Oracle", "Metis", "Momus"],
-                "modelRouting": model_routing,
-                "workflow": workflow,
-                "mcp": mcp,
-                "rules": rules,
-                "reason": reason,
-                "officialCategories": official_opencode_categories,
-                "policy": {
-                    "validate": ["npm run build", "npm run smoke:api"],
-                    "refresh": "crawl-triggered",
+                "$schema": "https://opencode.ai/config.json",
+                "agent": {
+                    "build": {
+                        "description": f"{domain} recommendation operator",
+                    }
+                },
+                "command": {
+                    "start-work": {
+                        "description": "추천 셋팅 기반 작업 시작",
+                        "template": "Run start-work checklist"
+                    },
+                    "review-work": {
+                        "description": "품질 게이트 점검",
+                        "template": "Run review-work checklist"
+                    }
                 },
             },
             ensure_ascii=False,
@@ -346,25 +313,22 @@ class TemplateManager:
         }
 
         opencode_dynamic_skills = {
-            path.replace("skills/", ".opencode/skills/"): content
+            f".opencode/skills/{path}": content
             for path, content in dynamic_skill_files.items()
-        }
-        opencode_dynamic_rules = {
-            path.replace("rules/", ".opencode/rules/"): content
-            for path, content in dynamic_rule_files.items()
         }
 
         return {
-            **base_bundle,
-            "OpenCode.jsonc": opencode_jsonc,
+            ".opencode/README.md": readme,
+            ".opencode/AGENTS.md": agents_md,
+            ".opencode/Rule.md": rule_md,
+            ".opencode/unified-ops.md": unified_ops,
+            ".opencode/clone.sh": clone_script,
+            "opencode.json": opencode_config,
             ".opencode/commands/start-work.md": opencode_start_work,
             ".opencode/commands/review-work.md": opencode_review_work,
-            ".opencode/skills/domain-skill.md": skill_md,
             **opencode_dynamic_agents,
             **opencode_dynamic_skills,
-            **opencode_dynamic_rules,
             **opencode_category_files,
-            ".worktreeinclude": ".env\n.env.local\nconfig/*.json\n",
         }
 
     async def generate_template_from_knowledge(self, domain: str, knowledge_list: list[dict[str, Any]]) -> str:
