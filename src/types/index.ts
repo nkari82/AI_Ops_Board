@@ -117,6 +117,14 @@ export type RecommendedSetting = {
   feedbackCount?: number;
   qualityConfidence?: number;
   qualityBand?: "low" | "medium" | "high";
+  scoreBreakdown?: {
+    baseScore: number;
+    feedbackBonus: number;
+    comboBoost: number;
+    sparsePenaltyApplied: boolean;
+    finalScore: number;
+  };
+  evidenceHighlights?: string[];
   subagentCandidates?: string[];
   dynamicViews?: string[];
   officialCategories?: {
