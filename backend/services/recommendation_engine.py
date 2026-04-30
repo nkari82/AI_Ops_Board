@@ -310,10 +310,13 @@ class RecommendationEngine:
                 merged_settings.append(item)
                 to_refine.append(item)
 
+        marker_before_save = await get_latest_post_updated_at(db)
+
         # Keyless harness: skip LLM refinement to avoid expensive provider failover.
         if not to_refine or not self._has_any_llm_key():
             latest_marker = await get_latest_post_updated_at(db)
-            save_cached_settings(settings=merged_settings, generated_by=trigger, latest_post_updated_at=latest_marker)
+            if latest_marker == marker_before_save:
+                save_cached_settings(settings=merged_settings, generated_by=trigger, latest_post_updated_at=latest_marker)
             return merged_settings
 
         if max_refine_domains is not None:
@@ -341,7 +344,8 @@ class RecommendationEngine:
                 refined_settings.append(item)
 
         latest_marker = await get_latest_post_updated_at(db)
-        save_cached_settings(settings=refined_settings, generated_by=trigger, latest_post_updated_at=latest_marker)
+        if latest_marker == marker_before_save:
+            save_cached_settings(settings=refined_settings, generated_by=trigger, latest_post_updated_at=latest_marker)
         return refined_settings
 
     async def _refine_domain_setting_with_llm(self, setting: dict[str, Any]) -> dict[str, Any]:

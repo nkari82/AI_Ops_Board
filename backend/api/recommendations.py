@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+try:
+    import fcntl  # type: ignore
+except ImportError:  # pragma: no cover - windows fallback
+    fcntl = None  # type: ignore
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -48,6 +55,7 @@ _DEFAULT_WORKFLOW = ["수집 → 분류 → 요약", "카드 검수", "템플릿
 _FEEDBACK_PATH = Path(__file__).resolve().parents[1] / "data" / "recommendation_feedback.jsonl"
 _FEEDBACK_SCHEMA_VERSION = 1
 _MAX_NOTE_LEN = 500
+_FEEDBACK_WRITE_LOCK = threading.Lock()
 
 
 def _derive_dynamic_harness_metadata(domain_posts: list[Any], *, domain: str) -> tuple[list[str], list[str], dict[str, list[str]]]:
@@ -161,15 +169,34 @@ def _load_feedback() -> list[dict[str, Any]]:
             payload = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(payload, dict):
-            rows.append(payload)
+        if not isinstance(payload, dict):
+            continue
+
+        rating_raw = payload.get("rating")
+        try:
+            rating = int(rating_raw)
+        except (TypeError, ValueError):
+            continue
+        if rating < 1 or rating > 5:
+            continue
+
+        payload["rating"] = rating
+        rows.append(payload)
     return rows
 
 
 def _append_feedback(entry: dict[str, Any]) -> None:
     _FEEDBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with _FEEDBACK_PATH.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    with _FEEDBACK_WRITE_LOCK:
+        with _FEEDBACK_PATH.open("a", encoding="utf-8") as f:
+            if fcntl is not None and os.name != "nt":
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                f.flush()
+            finally:
+                if fcntl is not None and os.name != "nt":
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 @router.get("")
@@ -220,7 +247,8 @@ async def get_recommendations(
         )
         tech_counter = Counter()
         for p in domain_posts:
-            for tech in _normalize_str_list(getattr(p, "tech_stack", []), limit=20):
+            unique_tech = set(_normalize_str_list(getattr(p, "tech_stack", []), limit=20))
+            for tech in unique_tech:
                 tech_counter[tech] += 1
 
         top_categories = [name for name, _ in category_counter.most_common(3)]
@@ -230,6 +258,18 @@ async def get_recommendations(
         avg_feedback = 0.0
         if feedback:
             avg_feedback = sum(int(x.get("rating", 0)) for x in feedback) / max(len(feedback), 1)
+
+        selected_models = _DEFAULT_MODEL_ROUTING
+        selected_workflow = _DEFAULT_WORKFLOW
+        for row in reversed(feedback):
+            row_models = _normalize_str_list(row.get("chosen_models"), limit=10)
+            row_workflow = _normalize_str_list(row.get("chosen_workflow"), limit=10)
+            if row_models:
+                selected_models = row_models
+            if row_workflow:
+                selected_workflow = row_workflow
+            if row_models or row_workflow:
+                break
 
         base_score = min(100, 40 + len(domain_posts) * 3)
         feedback_bonus = int((avg_feedback - 3.0) * 8) if feedback else 0
@@ -257,8 +297,8 @@ async def get_recommendations(
                 "domain": domain,
                 "title": f"{domain} 추천 운용 셋팅",
                 "score": score,
-                "modelRouting": _DEFAULT_MODEL_ROUTING,
-                "workflow": _DEFAULT_WORKFLOW,
+                "modelRouting": selected_models,
+                "workflow": selected_workflow,
                 "mcp": top_tech or ["MCP Router", "Knowledge Sync"],
                 "rules": top_categories or ["깨알팁", "실전 사례"],
                 "reason": (

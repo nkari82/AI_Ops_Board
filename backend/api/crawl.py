@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,9 @@ logger = logging.getLogger(__name__)
 # In-memory runtime telemetry for YouTube keyword crawl requests.
 # Note: this is process-local runtime telemetry for operational visibility.
 _YT_SEARCH_TELEMETRY_LOCK = Lock()
+_CELERY_LOOP_LOCK = Lock()
+_celery_worker_loop: asyncio.AbstractEventLoop | None = None
+
 _YT_SEARCH_TELEMETRY: dict[str, Any] = {
     "requested": 0,
     "deduplicated": 0,
@@ -46,6 +50,16 @@ _YT_SEARCH_TELEMETRY: dict[str, Any] = {
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _run_async_in_celery(coro: Any) -> Any:
+    global _celery_worker_loop
+
+    with _CELERY_LOOP_LOCK:
+        if _celery_worker_loop is None or _celery_worker_loop.is_closed():
+            _celery_worker_loop = asyncio.new_event_loop()
+
+    return _celery_worker_loop.run_until_complete(coro)
 
 
 def _build_youtube_search_dedup_key(query: str, max_results: int, pages: int) -> str:
@@ -357,7 +371,11 @@ def background_crawl_reddit_task(subreddit: str, limit: int):
     from services.recommendation_engine import RecommendationEngine
     
     # Broadcast start
-    asyncio.run(httpx.AsyncClient().post("http://backend:8000/api/ws/broadcast", json={"message": f"Crawl started for {subreddit}"}))
+    async def _broadcast_start() -> None:
+        async with httpx.AsyncClient() as client:
+            await client.post("http://backend:8000/api/ws/broadcast", json={"message": f"Crawl started for {subreddit}"})
+
+    _run_async_in_celery(_broadcast_start())
     
     async def _run():
         crawler = RedditCrawler()
@@ -370,11 +388,15 @@ def background_crawl_reddit_task(subreddit: str, limit: int):
             await db.commit()
         return results
     
-    result = asyncio.run(_run())
+    result = _run_async_in_celery(_run())
     logger.info("Reddit background crawl done subreddit=%s items=%s", subreddit, len(result or []))
     
     # Broadcast finish
-    asyncio.run(httpx.AsyncClient().post("http://backend:8000/api/ws/broadcast", json={"message": f"Crawl finished for {subreddit}"}))
+    async def _broadcast_finish() -> None:
+        async with httpx.AsyncClient() as client:
+            await client.post("http://backend:8000/api/ws/broadcast", json={"message": f"Crawl finished for {subreddit}"})
+
+    _run_async_in_celery(_broadcast_finish())
     
     return result
 
@@ -403,8 +425,7 @@ def background_crawl_youtube_task(url: str):
 
         return result
     
-    # Celery 환경에서 루프 충돌을 피하기 위해 asyncio.run 대신 내부에서 동기적 실행
-    result = asyncio.run(_run())
+    result = _run_async_in_celery(_run())
     logger.info("YouTube background crawl done url=%s success=%s", url, bool(result))
     return result
 
@@ -439,7 +460,7 @@ def background_crawl_youtube_search_task(query: str, max_results: int = 8, pages
 
         return results
 
-    results = asyncio.run(_run())
+    results = _run_async_in_celery(_run())
     logger.info(
         "YouTube keyword crawl done query=%s requested=%s pages=%s collected=%s",
         query,

@@ -143,7 +143,7 @@ class ContentAnalyzer:
             tech_stack = await self._extract_tech_stack(normalized_content, summary_ko)
 
         related_concepts = await self._suggest_related_concepts(normalized_content, summary_ko)
-        risk = await self._assess_risk(normalized_content, summary_ko)
+        risk = self._assess_risk(normalized_content, summary_ko)
         doc_type = self._classify_type(normalized_content, summary_ko)
 
         return {
@@ -656,7 +656,7 @@ Text:
         except Exception:
             return []
 
-    async def _assess_risk(self, content: str, summary: str) -> str:
+    def _assess_risk(self, content: str, summary: str) -> str:
         text = (content + " " + summary).lower()
         
         high_risk_keywords = ['memory leak', 'crash', 'security', '보안', 'critical', 'oom']

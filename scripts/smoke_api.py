@@ -102,7 +102,14 @@ def run_basic_smoke(base: str, timeout: float) -> list[str]:
     return failures
 
 
-def run_youtube_lifecycle_smoke(base: str, timeout: float, query: str, max_results: int, pages: int) -> list[str]:
+def run_youtube_lifecycle_smoke(
+    base: str,
+    timeout: float,
+    query: str,
+    max_results: int,
+    pages: int,
+    strict_success_only: bool = False,
+) -> list[str]:
     failures: list[str] = []
     print("\n=== Deep Smoke: YouTube lifecycle ===")
 
@@ -174,6 +181,13 @@ def run_youtube_lifecycle_smoke(base: str, timeout: float, query: str, max_resul
             print(f"[INFO] youtube_task_poll: status={task_status}")
 
             if task_status in TERMINAL_TASK_STATUSES:
+                if strict_success_only and task_status != "SUCCESS":
+                    failures.append(
+                        "[youtube_task_terminal] strict mode requires SUCCESS "
+                        f"but got status={task_status}"
+                    )
+                    print(f"[FAIL] youtube_task_terminal: strict mode status={task_status}")
+                    return failures
                 print(f"[PASS] youtube_task_terminal: status={task_status}")
                 return failures
 
@@ -191,7 +205,14 @@ def run_youtube_lifecycle_smoke(base: str, timeout: float, query: str, max_resul
     return failures
 
 
-def run(deep: bool, deep_only: bool, deep_query: str, deep_max_results: int, deep_pages: int) -> int:
+def run(
+    deep: bool,
+    deep_only: bool,
+    deep_query: str,
+    deep_max_results: int,
+    deep_pages: int,
+    strict_deep_success: bool,
+) -> int:
     timeout = float(os.getenv("SMOKE_TIMEOUT_SECONDS") or "8")
     base = _base_url()
 
@@ -212,6 +233,7 @@ def run(deep: bool, deep_only: bool, deep_query: str, deep_max_results: int, dee
                 query=deep_query,
                 max_results=deep_max_results,
                 pages=deep_pages,
+                strict_success_only=strict_deep_success,
             )
         )
 
@@ -231,6 +253,11 @@ def main() -> int:
     parser.add_argument("--deep", action="store_true", help="Run deep smoke including YouTube task lifecycle")
     parser.add_argument("--deep-only", action="store_true", help="Run only deep lifecycle checks (skip baseline GET smoke)")
     parser.add_argument("--query", default=os.getenv("SMOKE_YT_QUERY") or "ai ops automation", help="YouTube deep smoke query")
+    parser.add_argument(
+        "--strict-deep-success",
+        action="store_true",
+        help="Deep smoke terminal status must be SUCCESS (FAILURE/REVOKED considered fail)",
+    )
     parser.add_argument("--max-results", type=int, default=int(os.getenv("SMOKE_YT_MAX_RESULTS") or "2"))
     parser.add_argument("--pages", type=int, default=int(os.getenv("SMOKE_YT_PAGES") or "1"))
     args = parser.parse_args()
@@ -241,6 +268,7 @@ def main() -> int:
         deep_query=(args.query or "ai ops automation").strip(),
         deep_max_results=max(1, min(5, int(args.max_results))),
         deep_pages=max(1, min(2, int(args.pages))),
+        strict_deep_success=bool(args.strict_deep_success or (os.getenv("SMOKE_STRICT_DEEP_SUCCESS") == "1")),
     )
 
 
