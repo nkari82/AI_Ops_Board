@@ -32,7 +32,7 @@ class CrawledPostIngestService:
         db: AsyncSession,
         raw_items: List[Dict[str, Any]],
         *,
-        source_name: Literal["github", "hn", "youtube", "reddit"],
+        source_name: Literal["github", "hn", "youtube", "reddit", "geeknews"],
         context: Optional[Dict[str, Any]] = None,
     ) -> List[CrawledPost]:
         posts: List[CrawledPost] = []
@@ -104,19 +104,40 @@ class CrawledPostIngestService:
         if source_name == "reddit":
             source_marker = raw.get("source") or "reddit"
             subreddit = context.get("subreddit") or "unknown"
+
+            raw_selftext = (raw.get("selftext") or "").strip()
+            # parser-first: reddit crawler already unescapes and parses HTML via BeautifulSoup
+            selftext = raw_selftext
+
             return NormalizedCrawlItem(
                 title=raw.get("title", "").strip(),
                 url=raw.get("url", "").strip(),
                 source=f"{source_marker}:{subreddit}",
                 source_type="reddit",
-                content=(raw.get("selftext") or "").strip(),
+                content=selftext,
                 score=raw.get("score"),
-                domain_hint=self.detect_domain((raw.get("selftext") or raw.get("title") or "")),
+                domain_hint=self.detect_domain((selftext or raw.get("title") or "")),
                 extra_data={
                     "created_utc": raw.get("created_utc"),
                     "num_comments": raw.get("num_comments"),
                     "source_mode": source_marker,
                     "rss_quality": raw.get("rss_quality") if isinstance(raw.get("rss_quality"), dict) else None,
+                },
+            )
+        if source_name == "geeknews":
+            return NormalizedCrawlItem(
+                title=(raw.get("title") or "").strip(),
+                url=(raw.get("link") or raw.get("url") or "").strip(),
+                source="geeknews:rss",
+                source_type="geeknews",
+                content=(raw.get("summary") or "").strip(),
+                score=None,
+                domain_hint=self.detect_domain((raw.get("summary") or raw.get("title") or "")),
+                extra_data={
+                    "author": raw.get("author"),
+                    "published": raw.get("published"),
+                    "tags": raw.get("tags") if isinstance(raw.get("tags"), list) else [],
+                    "source_mode": "rss",
                 },
             )
         return None

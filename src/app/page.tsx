@@ -5,6 +5,7 @@ import type { BoardCategory, Domain } from "@/types";
 import { useBoardData } from "@/hooks/useBoardData";
 import { useCrawler } from "@/hooks/useCrawler";
 import { useTemplateService } from "@/hooks/useTemplateService";
+import { testLlmApi } from "@/lib/api";
 import { BoardFilters } from "@/components/board/BoardFilters";
 import { OperationPostCard } from "@/components/board/OperationPostCard";
 import { CrawlResultsPanel } from "@/components/crawler/CrawlResultsPanel";
@@ -13,8 +14,6 @@ import {
   RefreshCw,
   Sparkles,
 } from "lucide-react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8005";
 
 export default function AiOpsBoard() {
   const [query, setQuery] = useState("");
@@ -25,12 +24,7 @@ export default function AiOpsBoard() {
   const testLlmConnection = async () => {
     setLlmTestStatus("테스트 중...");
     try {
-      const response = await fetch(`${API_BASE}/api/test-llm`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: "Hello, are you working?" })
-      });
-      const data = await response.json();
+      const data = await testLlmApi("Hello, are you working?");
       setLlmTestStatus(data.status === "success" ? "성공!" : "실패");
       console.log("LLM Response:", data.response);
     } catch (e) {
@@ -41,7 +35,16 @@ export default function AiOpsBoard() {
 
   // const { userPosts, fetchKnowledge, registerUserPost } = useBoardData();
   // const { fetchKnowledge } = useBoardData(); // 이 부분은 아래와 같이 수정됨
-  const { fetchKnowledge, visiblePosts, allPosts, loadMore, hasMore } = useBoardData();
+  const {
+    fetchKnowledge,
+    visiblePosts,
+    allPosts,
+    loadMore,
+    hasMore,
+    loadingPosts,
+    postsError,
+    knowledgeError,
+  } = useBoardData({ autoFetchKnowledge: false });
   const { crawlResults, crawling, crawlingStatus, testCrawl } = useCrawler(fetchKnowledge);
   const {
     isLoading,
@@ -63,10 +66,6 @@ export default function AiOpsBoard() {
     }));
     setLatestNews(news);
   }, [allPosts]);
-
-  React.useEffect(() => {
-    fetchKnowledge();
-  }, [fetchKnowledge]);
 
   // ... (existing logic)
 
@@ -111,10 +110,13 @@ export default function AiOpsBoard() {
               {crawling ? "크롤링 중..." : "최신 뉴스 업데이트"}
             </Button>
             <Link href="/recommendations">
-              <Button size="sm" variant="outline">하네스 추천셋팅</Button>
+              <Button size="sm" variant="outline">하네스 운영</Button>
             </Link>
             <Link href="/settings">
               <Button size="sm" variant="outline">프로젝트 설정</Button>
+            </Link>
+            <Link href="/about">
+              <Button size="sm" variant="outline">About</Button>
             </Link>
             <Button size="sm" variant="outline" onClick={testLlmConnection}>
               <Sparkles className="h-3.5 w-3.5 mr-1" />
@@ -148,7 +150,19 @@ export default function AiOpsBoard() {
         />
 
         <section className="space-y-4">
-          {filteredPosts.length > 0 ? (
+          {(postsError || knowledgeError) && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              데이터 로드 중 오류가 발생했습니다.
+              {postsError ? ` posts: ${postsError}` : ""}
+              {knowledgeError ? ` knowledge: ${knowledgeError}` : ""}
+            </div>
+          )}
+
+          {loadingPosts ? (
+            <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-slate-500">
+              운용 포스트를 불러오는 중입니다...
+            </div>
+          ) : filteredPosts.length > 0 ? (
             <>
               {filteredPosts.slice(0, visiblePosts.length).map((post) => (
                 <OperationPostCard key={post.id} post={post} />

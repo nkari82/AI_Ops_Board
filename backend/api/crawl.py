@@ -16,6 +16,7 @@ from celery_app import celery_app
 from crawlers.github import GithubCrawler
 from crawlers.hn import HackerNewsCrawler
 from crawlers.youtube import YoutubeCrawler
+from crawlers.geeknews import GeekNewsCrawler
 from services.crawled_post_ingest import CrawledPostIngestService
 from services.error_tracker import error_tracker
 
@@ -221,7 +222,7 @@ def get_youtube_search_telemetry_snapshot() -> dict[str, Any]:
 def _parse_enabled_sources() -> set[str]:
     raw = (getattr(settings, "CRAWL_ENABLED_SOURCES", "") or "").strip()
     if not raw:
-        return {"reddit", "github", "hn", "youtube"}
+        return {"reddit", "github", "hn", "youtube", "geeknews"}
     return {item.strip().lower() for item in raw.split(",") if item.strip()}
 
 
@@ -271,6 +272,17 @@ def _build_crawl_health_snapshot() -> dict[str, Any]:
             youtube_status = "degraded"
             youtube_detail = "keyword search disabled by YOUTUBE_SEARCH_ENABLED"
 
+    geeknews_rss_url = (getattr(settings, "GEEKNEWS_RSS_URL", "") or "").strip()
+    geeknews_status = "disabled"
+    geeknews_detail = "source disabled"
+    if "geeknews" in enabled:
+        if geeknews_rss_url:
+            geeknews_status = "healthy"
+            geeknews_detail = "rss feed configured"
+        else:
+            geeknews_status = "degraded"
+            geeknews_detail = "GEEKNEWS_RSS_URL is empty"
+
     sources = {
         "reddit": {"status": reddit_status, "detail": reddit_detail},
         "github": {
@@ -284,6 +296,10 @@ def _build_crawl_health_snapshot() -> dict[str, Any]:
         "youtube": {
             "status": youtube_status,
             "detail": youtube_detail,
+        },
+        "geeknews": {
+            "status": geeknews_status,
+            "detail": geeknews_detail,
         },
     }
 
@@ -338,6 +354,7 @@ def background_crawl_reddit_task(subreddit: str, limit: int):
     from crawlers.reddit import RedditCrawler
     from db import async_session_maker
     from services.crawled_post_ingest import CrawledPostIngestService
+    from services.recommendation_engine import RecommendationEngine
     
     # Broadcast start
     asyncio.run(httpx.AsyncClient().post("http://backend:8000/api/ws/broadcast", json={"message": f"Crawl started for {subreddit}"}))
@@ -348,6 +365,8 @@ def background_crawl_reddit_task(subreddit: str, limit: int):
         async with async_session_maker() as db:
             service = CrawledPostIngestService()
             await service.ingest_items(db, results, source_name="reddit", context={"subreddit": subreddit})
+            recommender = RecommendationEngine()
+            await recommender.rebuild_cache_with_llm(db, trigger="crawl:reddit", limit=600, max_refine_domains=2)
             await db.commit()
         return results
     
@@ -366,6 +385,7 @@ def background_crawl_youtube_task(url: str):
     from db import async_session_maker
     from services.knowledge_manager import KnowledgeManager
     from services.crawled_post_ingest import CrawledPostIngestService
+    from services.recommendation_engine import RecommendationEngine
     
     async def _run():
         crawler = YoutubeCrawler()
@@ -378,7 +398,9 @@ def background_crawl_youtube_task(url: str):
                 if posts:
                     km = KnowledgeManager()
                     await km.generate_knowledge_cards(db, new_post=posts[0])
-                
+                recommender = RecommendationEngine()
+                await recommender.rebuild_cache_with_llm(db, trigger="crawl:youtube", limit=600, max_refine_domains=2)
+
         return result
     
     # Celery 환경에서 루프 충돌을 피하기 위해 asyncio.run 대신 내부에서 동기적 실행
@@ -394,6 +416,7 @@ def background_crawl_youtube_search_task(query: str, max_results: int = 8, pages
     from db import async_session_maker
     from services.knowledge_manager import KnowledgeManager
     from services.crawled_post_ingest import CrawledPostIngestService
+    from services.recommendation_engine import RecommendationEngine
 
     async def _run():
         crawler = YoutubeCrawler()
@@ -410,6 +433,9 @@ def background_crawl_youtube_search_task(query: str, max_results: int = 8, pages
                 km = KnowledgeManager()
                 for post in posts:
                     await km.generate_knowledge_cards(db, new_post=post)
+
+            recommender = RecommendationEngine()
+            await recommender.rebuild_cache_with_llm(db, trigger="crawl:youtube_search", limit=600, max_refine_domains=2)
 
         return results
 
@@ -569,6 +595,9 @@ async def crawl_github(limit: int = 10, db: AsyncSession = Depends(get_db)) -> L
         
         results = await crawler.crawl_trending(limit)
         await service.ingest_items(db, results, source_name="github")
+        from services.recommendation_engine import RecommendationEngine
+        recommender = RecommendationEngine()
+        await recommender.rebuild_cache_with_llm(db, trigger="crawl:github", limit=600, max_refine_domains=2)
         return results
     except Exception as e:
         error_tracker.log_error("CRAWL_FAILURE", str(e), details={"source": "github", "limit": limit})
@@ -582,16 +611,41 @@ async def crawl_hackernews(limit: int = 10, db: AsyncSession = Depends(get_db)) 
         logger.info(f"Starting HackerNews crawl with limit={limit}")
         crawler = HackerNewsCrawler()
         service = CrawledPostIngestService()
-        
+
         results = await crawler.crawl_top_stories(limit)
         logger.info(f"HackerNews crawl finished. Fetched {len(results)} items.")
         await service.ingest_items(db, results, source_name="hn")
+        from services.recommendation_engine import RecommendationEngine
+        recommender = RecommendationEngine()
+        await recommender.rebuild_cache_with_llm(db, trigger="crawl:hn", limit=600, max_refine_domains=2)
         logger.info("Successfully committed HackerNews posts to DB.")
         return results
     except Exception as e:
         logger.error(f"Hacker News crawl failed with limit={limit}: {e}", exc_info=True)
         error_tracker.log_error("CRAWL_FAILURE", str(e), details={"source": "hn", "limit": limit})
         raise HTTPException(status_code=500, detail=f"Hacker News crawl failed: {str(e)}")
+
+
+@router.post("/geeknews")
+async def crawl_geeknews(limit: int = 20, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+    _ensure_source_enabled("geeknews")
+    try:
+        logger.info("Starting GeekNews crawl with limit=%s", limit)
+        crawler = GeekNewsCrawler()
+        service = CrawledPostIngestService()
+
+        results = await crawler.crawl_recent(limit)
+        logger.info("GeekNews crawl finished. Fetched %s items.", len(results))
+        await service.ingest_items(db, results, source_name="geeknews")
+        from services.recommendation_engine import RecommendationEngine
+        recommender = RecommendationEngine()
+        await recommender.rebuild_cache_with_llm(db, trigger="crawl:geeknews", limit=600, max_refine_domains=2)
+        logger.info("Successfully committed GeekNews posts to DB.")
+        return results
+    except Exception as e:
+        logger.error("GeekNews crawl failed with limit=%s: %s", limit, e, exc_info=True)
+        error_tracker.log_error("CRAWL_FAILURE", str(e), details={"source": "geeknews", "limit": limit})
+        raise HTTPException(status_code=500, detail=f"GeekNews crawl failed: {str(e)}")
 
 
 @router.get("/posts")

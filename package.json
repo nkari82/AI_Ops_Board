@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/build_with_retry.js",
     "start": "next start",
     "lint": "eslint",
+    "prebuild:clean": "node -e \"const fs=require('fs');const p='.next';if(fs.existsSync(p)){try{fs.rmSync(p,{recursive:true,force:true});}catch(e){console.warn('prebuild cleanup skipped:',e?.message||e);}}\"",
     "validate:env": "python scripts/validate_env.py",
     "smoke:api": "python scripts/smoke_api.py",
     "smoke:api:deep": "python scripts/smoke_api.py --deep",

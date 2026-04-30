@@ -3,7 +3,7 @@ import zipfile
 from importlib import import_module
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,16 +37,20 @@ async def get_clone_instructions(domain: str) -> dict[str, str]:
     }
 
 @router.post("/generate-zip")
-async def generate_template_zip(domain: str, db: AsyncSession = Depends(get_db)) -> Response:
+async def generate_template_zip(
+    domain: str,
+    payload: dict[str, Any] | None = Body(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
     # 1. 지식 데이터 로드
-    query = select(CrawledPost).where(CrawledPost.domain == domain).limit(10)
+    query = select(CrawledPost).where(CrawledPost.domain == domain).limit(100)
     result = await db.execute(query)
     posts = result.scalars().all()
     
     knowledge_list = [
         {
             "title": p.title,
-            "summary": (p.summary or p.content or p.title or "")[:200],
+            "summary": (p.summary or p.content or p.title or ""),
         }
         for p in posts
     ]
@@ -55,10 +59,12 @@ async def generate_template_zip(domain: str, db: AsyncSession = Depends(get_db))
     if not knowledge_list:
         knowledge_list = [{"title": domain, "summary": "도메인 기본 운영 템플릿"}]
 
-    # 2. 템플릿 번들 생성 (unified-ops + README + clone script)
+    recommendation = payload or {}
+
+    # 2. 템플릿 번들 생성 (추천셋팅 반영)
     manager = TemplateManager()
     try:
-        bundle = await manager.generate_template_bundle(domain, knowledge_list)
+        bundle = await manager.generate_template_bundle(domain, knowledge_list, recommendation)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

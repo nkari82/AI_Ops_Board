@@ -55,6 +55,15 @@ MOCK_MODELS: list[Any] = [
         endpoint="https://api.groq.com/openai/v1",
         enabled=True
     ),
+    LlmModel(
+        id="codex-cli-subscription",
+        name="Codex CLI",
+        provider="Codex CLI",
+        cost="subscription",
+        role="구독형 고성능 코딩/리뷰",
+        endpoint="local://codex-cli",
+        enabled=True
+    ),
 ]
 
 

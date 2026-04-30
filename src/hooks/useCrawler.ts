@@ -1,10 +1,11 @@
 import { useCallback, useState } from "react";
-import { crawlGithubApi, crawlHnApi, crawlRedditApi } from "@/lib/api";
+import { crawlGeekNewsApi, crawlGithubApi, crawlHnApi, crawlRedditApi } from "@/lib/api";
 
 type CrawlResults = {
   reddit?: { title: string }[];
   github?: { name: string }[];
   hn?: { title: string }[];
+  geeknews?: { title: string }[];
 };
 
 export function useCrawler(onCrawlComplete?: () => void) {
@@ -22,6 +23,7 @@ export function useCrawler(onCrawlComplete?: () => void) {
         crawlRedditApi("LocalLLaMA", 5),
         crawlGithubApi(5),
         crawlHnApi(5),
+        crawlGeekNewsApi(10),
       ]);
       setCrawlingStatus("작업 완료");
       onCrawlComplete?.();

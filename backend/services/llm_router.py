@@ -6,6 +6,7 @@ from config import settings
 from services.error_tracker import error_tracker
 
 logger = logging.getLogger(__name__)
+DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=30, connect=10, sock_read=25)
 
 
 def _join_url(base: str, path: str) -> str:
@@ -29,12 +30,16 @@ class LLMRouter:
             "openrouter": self._call_openrouter,
             "pollinations": self._call_pollinations,
             "gemini": self._call_gemini,
+            "mistral": self._call_mistral,
+            "deepseek": self._call_deepseek,
+            "cerebras": self._call_cerebras,
+            "sambanova": self._call_sambanova,
         }
 
     def _parse_failover_order(self) -> list[str]:
         raw = (getattr(settings, "LLM_FAILOVER_ORDER", "") or "").strip()
         if not raw:
-            return ["gemini", "pollinations", "groq", "openrouter", "huggingface", "vllm"]
+            return ["gemini", "pollinations", "groq", "openrouter", "mistral", "deepseek", "cerebras", "sambanova", "huggingface", "vllm"]
         ordered = [item.strip() for item in raw.split(",") if item.strip()]
         return [item for item in ordered if item in self.providers]
 
@@ -151,7 +156,7 @@ class LLMRouter:
             }
         }
         
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=DEFAULT_TIMEOUT) as session:
             async with session.post(url, headers=headers, json=payload) as resp:
                 if resp.status == 200:
                     result = await resp.json()
@@ -176,7 +181,7 @@ class LLMRouter:
             "temperature": temperature
         }
         
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=DEFAULT_TIMEOUT) as session:
             async with session.post(url, headers=headers, json=payload) as resp:
                 if resp.status == 200:
                     result = await resp.json()
@@ -193,7 +198,7 @@ class LLMRouter:
             "temperature": temperature
         }
         
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=DEFAULT_TIMEOUT) as session:
             async with session.post(url, json=payload) as resp:
                 if resp.status == 200:
                     result = await resp.json()
@@ -206,7 +211,7 @@ class LLMRouter:
         headers = {"Authorization": f"Bearer {settings.HUGGINGFACE_TOKEN}"}
         payload = {"inputs": text}
         
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=DEFAULT_TIMEOUT) as session:
             async with session.post(url, headers=headers, json=payload) as resp:
                 if resp.status == 200:
                     return await resp.json()
@@ -229,12 +234,89 @@ class LLMRouter:
             "temperature": temperature
         }
         
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=DEFAULT_TIMEOUT) as session:
             async with session.post(url, headers=headers, json=payload) as resp:
                 if resp.status == 200:
                     result = await resp.json()
                     return result["choices"][0]["message"]["content"]
                 raise LLMRouterError("openrouter", f"API 오류: {resp.status}", status_code=resp.status)
+
+    async def _call_openai_compatible(
+        self,
+        *,
+        provider: str,
+        api_key: str | None,
+        base_url: str,
+        model: str,
+        prompt: str,
+        max_tokens: int,
+        temperature: float,
+    ) -> str:
+        if not api_key:
+            raise LLMRouterError(provider, f"{provider} API 키가 설정되지 않았습니다.")
+
+        url = _join_url(base_url, "/chat/completions")
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+
+        async with aiohttp.ClientSession(timeout=DEFAULT_TIMEOUT) as session:
+            async with session.post(url, headers=headers, json=payload) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    return result["choices"][0]["message"]["content"]
+                raise LLMRouterError(provider, f"API 오류: {resp.status}", status_code=resp.status)
+
+    async def _call_mistral(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        return await self._call_openai_compatible(
+            provider="mistral",
+            api_key=settings.MISTRAL_API_KEY,
+            base_url=settings.MISTRAL_BASE_URL,
+            model=settings.MISTRAL_MODEL,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+    async def _call_deepseek(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        return await self._call_openai_compatible(
+            provider="deepseek",
+            api_key=settings.DEEPSEEK_API_KEY,
+            base_url=settings.DEEPSEEK_BASE_URL,
+            model=settings.DEEPSEEK_MODEL,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+    async def _call_cerebras(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        return await self._call_openai_compatible(
+            provider="cerebras",
+            api_key=settings.CEREBRAS_API_KEY,
+            base_url=settings.CEREBRAS_BASE_URL,
+            model=settings.CEREBRAS_MODEL,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+    async def _call_sambanova(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        return await self._call_openai_compatible(
+            provider="sambanova",
+            api_key=settings.SAMBANOVA_API_KEY,
+            base_url=settings.SAMBANOVA_BASE_URL,
+            model=settings.SAMBANOVA_MODEL,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
 
     async def _call_pollinations(self, prompt: str, max_tokens: int, temperature: float) -> str:
         if not settings.POLLINATIONS_API_KEY:
@@ -253,7 +335,7 @@ class LLMRouter:
             "temperature": temperature,
         }
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=DEFAULT_TIMEOUT) as session:
             async with session.post(url, headers=headers, json=payload) as resp:
                 if resp.status == 200:
                     result = await resp.json()
@@ -291,7 +373,7 @@ class LLMRouter:
             },
         }
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=DEFAULT_TIMEOUT) as session:
             async with session.post(url, headers=headers, json=payload) as resp:
                 if resp.status == 200:
                     result = await resp.json()

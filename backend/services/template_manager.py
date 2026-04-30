@@ -1,4 +1,5 @@
 from importlib import import_module
+import json
 from typing import Any
 
 from config import settings
@@ -24,6 +25,14 @@ def _default_text_provider() -> str:
         return "groq"
     if settings.OPENROUTER_API_KEY:
         return "openrouter"
+    if settings.MISTRAL_API_KEY:
+        return "mistral"
+    if settings.DEEPSEEK_API_KEY:
+        return "deepseek"
+    if settings.CEREBRAS_API_KEY:
+        return "cerebras"
+    if settings.SAMBANOVA_API_KEY:
+        return "sambanova"
     if settings.HUGGINGFACE_TOKEN:
         return "huggingface"
     return "pollinations"
@@ -93,14 +102,22 @@ class TemplateManager:
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n\n"
             f"REPO_NAME=\"{safe}-ops-template\"\n"
-            "mkdir -p \"$REPO_NAME\"\n"
-            "cd \"$REPO_NAME\"\n"
+            "echo \"Initializing git repository in current template directory...\"\n"
+            "rm -f clone.sh\n"
             "git init\n"
-            "echo \"Template scaffold initialized\"\n"
-            "echo \"Copy unified-ops.md, AGENTS.md, Rule.md, README.md here\"\n"
+            "git add .\n"
+            "git commit -m \"feat: initialize harness ops template\" || true\n"
+            "echo \"✅ Template repository initialized in current directory\"\n"
+            "echo \"Suggested repo name: $REPO_NAME\"\n"
+            "echo \"Next: edit AGENTS.md / Rule.md and push to your remote\"\n"
         )
 
-    async def generate_template_bundle(self, domain: str, knowledge_list: list[dict[str, Any]]) -> dict[str, str]:
+    async def generate_template_bundle(
+        self,
+        domain: str,
+        knowledge_list: list[dict[str, Any]],
+        recommendation: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
         # ZIP 번들은 LLM 장애 시에도 생성되도록 강한 폴백을 보장한다.
         try:
             unified_ops = await self.generate_template_from_knowledge(domain, knowledge_list)
@@ -110,15 +127,244 @@ class TemplateManager:
         readme = await self._generate_readme(domain, knowledge_list, unified_ops)
         clone_script = self.build_clone_script(domain)
 
-        agents_md = "# Agent Definitions\n\nGenerated from context."
-        rule_md = "# Project Rules\n\nGenerated from context."
+        recommendation = recommendation or {}
 
-        return {
+        model_routing = [str(x).strip() for x in recommendation.get("modelRouting", []) if str(x).strip()]
+        workflow = [str(x).strip() for x in recommendation.get("workflow", []) if str(x).strip()]
+        mcp = [str(x).strip() for x in recommendation.get("mcp", []) if str(x).strip()]
+        rules = [str(x).strip() for x in recommendation.get("rules", []) if str(x).strip()]
+        reason = str(recommendation.get("reason") or "").strip()
+        harness_type = str(recommendation.get("harnessType") or "OpenCode").strip() or "OpenCode"
+        subagent_candidates = [str(x).strip() for x in recommendation.get("subagentCandidates", []) if str(x).strip()]
+        official_categories_payload = recommendation.get("officialCategories") if isinstance(recommendation.get("officialCategories"), dict) else {}
+        official_opencode_categories = [str(x).strip() for x in official_categories_payload.get("opencode", []) if str(x).strip()]
+        official_claude_categories = [str(x).strip() for x in official_categories_payload.get("claudecode", []) if str(x).strip()]
+
+        evidence_lines = [
+            f"- {k.get('title', '')}: {(k.get('summary') or k.get('content') or '')[:140]}"
+            for k in knowledge_list[:20]
+        ]
+        evidence_block = "\n".join(evidence_lines) if evidence_lines else "- 데이터 없음"
+
+        agents_md = (
+            f"# AGENTS.md ({domain})\n\n"
+            "## 목표\n"
+            "- 크롤링 데이터 기반으로 운영 가능한 하네스 산출물을 빠르게 생성/검증\n\n"
+            "## Agent Roster\n"
+            "- Sisyphus-Junior: 구현 실행 및 반복 검증\n"
+            "- Explore: 코드베이스 탐색/패턴 수집\n"
+            "- Librarian: 외부 문서/OSS 참조 확인\n"
+            "- Oracle: 고난도 설계/디버깅 자문\n"
+            "- Metis: 계획 전 리스크 분석\n"
+            "- Momus: 계획/품질 리뷰\n\n"
+            "## 운영 흐름\n"
+            + ("\n".join([f"{idx+1}. {step}" for idx, step in enumerate(workflow[:8])]) + "\n\n" if workflow else "1. Crawl/Normalize\n2. Analyze\n3. Recommendation refresh\n4. Template export\n5. Smoke/Re-check\n\n")
+            + "## 추천 근거\n"
+            + (f"- {reason}\n" if reason else "")
+            + "\n## 근거 데이터 샘플\n"
+            + f"{evidence_block}\n"
+        )
+
+        rule_md = (
+            f"# Rule.md ({domain})\n\n"
+            "## 필수 규칙\n"
+            "- 실전 운용 카테고리는 runbook/playbook/incident/deploy 맥락에서만 사용\n"
+            "- LLM 실패 문자열(API 오류/timeout 등)은 저장 전에 제거\n"
+            "- 크롤 후 추천 캐시를 갱신하고 freshness를 검증\n"
+            "- release:full + smoke:api를 게이트로 유지\n\n"
+            "## 템플릿 품질 규칙\n"
+            "- 다운로드 결과는 즉시 실행 가능한 구조(README/AGENTS/Rule/clone.sh 포함)\n"
+            "- 도메인별 추천 라우팅/워크플로우를 문서에 명시\n"
+            + ("\n## 추천 Rules\n" + "\n".join([f"- {r}" for r in rules[:10]]) + "\n" if rules else "")
+        )
+
+        skill_md = (
+            f"# SKILL.md ({domain})\n\n"
+            "## 권장 운영 Skill\n"
+            "- Crawl 품질 점검\n"
+            "- Analyzer 결과 검증\n"
+            "- Recommendation cache refresh 모니터링\n"
+            "- Template 다운로드 산출물 검수\n"
+            + ("\n## Plugin/MCP\n" + "\n".join([f"- {x}" for x in mcp[:12]]) + "\n" if mcp else "")
+        )
+
+        base_bundle = {
             "unified-ops.md": unified_ops,
             "AGENTS.md": agents_md,
             "Rule.md": rule_md,
+            "SKILL.md": skill_md,
             "README.md": readme,
             "clone.sh": clone_script,
+        }
+
+        dynamic_skill_files = {
+            f"skills/skill-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}.md": (
+                f"# Skill {idx+1}: {item}\n\n"
+                f"- domain: {domain}\n"
+                f"- harness: {harness_type}\n"
+                "- 목적: 추천 셋팅 기반 운영 액션 표준화\n"
+            )
+            for idx, item in enumerate(mcp[:12])
+        }
+
+        dynamic_rule_files = {
+            f"rules/rule-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}.md": (
+                f"# Rule {idx+1}: {item}\n\n"
+                f"- domain: {domain}\n"
+                f"- harness: {harness_type}\n"
+                "- 준수: build/smoke 통과 전 배포 금지\n"
+            )
+            for idx, item in enumerate(rules[:12])
+        }
+
+        opencode_category_files = {
+            f".opencode/categories/category-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}.md": (
+                f"# OpenCode Category: {item}\n\n"
+                "- source: opencode-ai/opencode official docs/schema\n"
+                f"- domain: {domain}\n"
+                "- objective: .opencode 운영 셋팅 카테고리 표준화\n"
+            )
+            for idx, item in enumerate(official_opencode_categories[:16])
+        }
+
+        claude_category_files = {
+            f".claude/categories/category-{idx+1:02d}-{item.lower().replace(' ', '-').replace('/', '-')}.md": (
+                f"# Claude Category: {item}\n\n"
+                "- source: Anthropic official capability docs (Skills/Memory/Tools/MCP)\n"
+                f"- domain: {domain}\n"
+                "- objective: .claude 운영 셋팅 카테고리 표준화\n"
+            )
+            for idx, item in enumerate(official_claude_categories[:16])
+        }
+
+        if harness_type == "ClaudeCode":
+            claude_config = json.dumps(
+                {
+                    "domain": domain,
+                    "harnessType": "ClaudeCode",
+                    "modelRouting": model_routing,
+                    "workflow": workflow,
+                    "mcp": mcp,
+                    "rules": rules,
+                    "reason": reason,
+                    "officialCategories": official_claude_categories,
+                    "permissions": {"mode": "plan"},
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            claude_planner = (
+                f"# Subagent Planner ({domain})\n\n"
+                "## Goal\n- 요구사항을 작업 단위로 분해\n\n"
+                "## Workflow\n"
+                + ("\n".join([f"- {step}" for step in workflow[:10]]) if workflow else "- 기본 워크플로우 사용")
+                + "\n"
+            )
+            claude_implementer = (
+                f"# Subagent Implementer ({domain})\n\n"
+                "## Goal\n- 계획을 코드/설정 변경으로 구현\n\n"
+                "## Rules\n"
+                + ("\n".join([f"- {r}" for r in rules[:12]]) if rules else "- 기본 규칙 사용")
+                + "\n"
+            )
+            claude_reviewer = (
+                f"# Subagent Reviewer ({domain})\n\n"
+                "## Goal\n- 빌드/스모크/품질 게이트 검증\n\n"
+                "## Checklist\n- npm run build\n- npm run smoke:api\n- release:full/deep\n"
+            )
+            claude_dynamic_agents = {
+                f".claude/agents/dynamic-{idx+1:02d}.md": (
+                    f"# Dynamic Subagent: {name}\n\n"
+                    f"- domain: {domain}\n"
+                    "- role: recommendation-driven dynamic specialist\n"
+                )
+                for idx, name in enumerate(subagent_candidates[:12])
+            }
+
+            claude_dynamic_skills = {
+                path.replace("skills/", ".claude/skills/"): content
+                for path, content in dynamic_skill_files.items()
+            }
+            claude_dynamic_rules = {
+                path.replace("rules/", ".claude/rules/"): content
+                for path, content in dynamic_rule_files.items()
+            }
+
+            return {
+                **base_bundle,
+                ".claude/config.json": claude_config,
+                ".claude/agents/planner.md": claude_planner,
+                ".claude/agents/implementer.md": claude_implementer,
+                ".claude/agents/reviewer.md": claude_reviewer,
+                ".claude/rules/domain-rules.md": rule_md,
+                **claude_dynamic_agents,
+                **claude_dynamic_skills,
+                **claude_dynamic_rules,
+                **claude_category_files,
+            }
+
+        opencode_jsonc = json.dumps(
+            {
+                "domain": domain,
+                "harnessType": "OpenCode",
+                "agents": ["Sisyphus-Junior", "Explore", "Librarian", "Oracle", "Metis", "Momus"],
+                "modelRouting": model_routing,
+                "workflow": workflow,
+                "mcp": mcp,
+                "rules": rules,
+                "reason": reason,
+                "officialCategories": official_opencode_categories,
+                "policy": {
+                    "validate": ["npm run build", "npm run smoke:api"],
+                    "refresh": "crawl-triggered",
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+        opencode_start_work = (
+            f"# /start-work ({domain})\n\n"
+            "## Goal\n- 추천 셋팅 기반 작업 시작\n\n"
+            "## Steps\n"
+            + ("\n".join([f"- {step}" for step in workflow[:10]]) if workflow else "- 기본 워크플로우 사용")
+            + "\n"
+        )
+        opencode_review_work = (
+            f"# /review-work ({domain})\n\n"
+            "## Gate\n- build/smoke 통과 확인\n"
+            "- 규칙 위반(as any, ts-ignore) 점검\n"
+        )
+
+        opencode_dynamic_agents = {
+            f".opencode/agents/dynamic-{idx+1:02d}.md": (
+                f"# Dynamic Agent: {name}\n\n"
+                f"- domain: {domain}\n"
+                "- role: recommendation-driven dynamic specialist\n"
+            )
+            for idx, name in enumerate(subagent_candidates[:12])
+        }
+
+        opencode_dynamic_skills = {
+            path.replace("skills/", ".opencode/skills/"): content
+            for path, content in dynamic_skill_files.items()
+        }
+        opencode_dynamic_rules = {
+            path.replace("rules/", ".opencode/rules/"): content
+            for path, content in dynamic_rule_files.items()
+        }
+
+        return {
+            **base_bundle,
+            "OpenCode.jsonc": opencode_jsonc,
+            ".opencode/commands/start-work.md": opencode_start_work,
+            ".opencode/commands/review-work.md": opencode_review_work,
+            ".opencode/skills/domain-skill.md": skill_md,
+            **opencode_dynamic_agents,
+            **opencode_dynamic_skills,
+            **opencode_dynamic_rules,
+            **opencode_category_files,
+            ".worktreeinclude": ".env\n.env.local\nconfig/*.json\n",
         }
 
     async def generate_template_from_knowledge(self, domain: str, knowledge_list: list[dict[str, Any]]) -> str:

@@ -35,6 +35,23 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
 
+    # Additional OpenAI-compatible providers (free tier / trial friendly)
+    MISTRAL_API_KEY: Optional[str] = None
+    MISTRAL_MODEL: str = "mistral-small-latest"
+    MISTRAL_BASE_URL: str = "https://api.mistral.ai/v1"
+
+    DEEPSEEK_API_KEY: Optional[str] = None
+    DEEPSEEK_MODEL: str = "deepseek-chat"
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
+
+    CEREBRAS_API_KEY: Optional[str] = None
+    CEREBRAS_MODEL: str = "llama3.1-8b"
+    CEREBRAS_BASE_URL: str = "https://api.cerebras.ai/v1"
+
+    SAMBANOVA_API_KEY: Optional[str] = None
+    SAMBANOVA_MODEL: str = "Meta-Llama-3.3-70B-Instruct"
+    SAMBANOVA_BASE_URL: str = "https://api.sambanova.ai/v1"
+
     # Pollinations (OpenAI-compatible)
     POLLINATIONS_API_KEY: Optional[str] = None
     # Cheap default for general text tasks (templates/knowledge): "mistral" or "nova-fast"
@@ -44,13 +61,16 @@ class Settings(BaseSettings):
     # Provider failover policy (quota-aware)
     LLM_FAILOVER_ENABLED: bool = True
     # Comma-separated provider preference chain
-    LLM_FAILOVER_ORDER: str = "gemini,pollinations,groq,openrouter,huggingface,vllm"
+    LLM_FAILOVER_ORDER: str = "gemini,pollinations,groq,openrouter,mistral,deepseek,cerebras,sambanova,huggingface,vllm"
     # HTTP statuses that should trigger failover attempts
     LLM_FAILOVER_ON_STATUS: str = "429,503,504"
 
     # Crawl control (env-driven)
-    # Comma-separated source keys. e.g. "reddit,github,hn,youtube"
-    CRAWL_ENABLED_SOURCES: str = "reddit,github,hn,youtube"
+    # Comma-separated source keys. e.g. "reddit,github,hn,youtube,geeknews"
+    CRAWL_ENABLED_SOURCES: str = "reddit,github,hn,youtube,geeknews"
+    # GeekNews RSS source
+    GEEKNEWS_RSS_URL: str = "https://news.hada.io/rss/news"
+
     # Default YouTube URLs for harness/ops crawling
     YOUTUBE_TARGET_URLS: str = ""
     # If true and target list is empty, /crawl/youtube accepts any URL.

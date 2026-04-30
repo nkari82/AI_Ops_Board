@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = ROOT / ".env"
 ENV_EXAMPLE_PATH = ROOT / ".env.example"
 
-ALLOWED_PROVIDERS = {"gemini", "pollinations", "groq", "openrouter", "huggingface", "vllm"}
+ALLOWED_PROVIDERS = {"gemini", "pollinations", "groq", "openrouter", "mistral", "deepseek", "cerebras", "sambanova", "huggingface", "vllm"}
 REQUIRED_BASE = [
     "DATABASE_URL",
     "CRAWL_ENABLED_SOURCES",
@@ -34,12 +34,21 @@ REQUIRED_BASE = [
     "REDDIT_RSS_LINK_MIN_TEXT_CHARS",
     "REDDIT_RSS_LINK_MAX_NOISE_RATIO",
     "REDDIT_RSS_LINK_MAX_SAME_LINE_RATIO",
+    "GEEKNEWS_RSS_URL",
 ]
 REQUIRED_PROVIDER_BASE = [
     "GEMINI_MODEL",
     "GEMINI_BASE_URL",
     "POLLINATIONS_TEXT_MODEL",
     "POLLINATIONS_BASE_URL",
+    "MISTRAL_MODEL",
+    "MISTRAL_BASE_URL",
+    "DEEPSEEK_MODEL",
+    "DEEPSEEK_BASE_URL",
+    "CEREBRAS_MODEL",
+    "CEREBRAS_BASE_URL",
+    "SAMBANOVA_MODEL",
+    "SAMBANOVA_BASE_URL",
 ]
 
 
@@ -144,7 +153,7 @@ def validate() -> tuple[list[str], list[str]]:
         errors.append("REDDIT_RSS_LINK_MAX_SAME_LINE_RATIO must be a float between 0 and 1")
 
     sources_raw = get_value("CRAWL_ENABLED_SOURCES", env_map)
-    allowed_sources = {"reddit", "github", "hn", "youtube"}
+    allowed_sources = {"reddit", "github", "hn", "youtube", "geeknews"}
     parsed_sources = {x.strip() for x in sources_raw.split(",") if x.strip()}
     if not parsed_sources:
         errors.append("CRAWL_ENABLED_SOURCES must include at least one source")
@@ -181,6 +190,10 @@ def validate() -> tuple[list[str], list[str]]:
             "GROQ_API_KEY",
             "OPENROUTER_API_KEY",
             "HUGGINGFACE_TOKEN",
+            "MISTRAL_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "CEREBRAS_API_KEY",
+            "SAMBANOVA_API_KEY",
         ]
     )
     if not has_any_provider_key:

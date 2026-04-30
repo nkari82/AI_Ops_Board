@@ -1,7 +1,30 @@
 import type { KnowledgeCard, OperationPost, OperationPostApi, RecommendedSetting } from "@/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8005";
 const DEFAULT_TIMEOUT_MS = 15000;
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+function resolveApiBase(): string {
+  const explicitBase = (process.env.NEXT_PUBLIC_API_URL || "").trim();
+  if (explicitBase) {
+    return trimTrailingSlash(explicitBase);
+  }
+
+  if (typeof window !== "undefined") {
+    const { protocol, hostname } = window.location;
+    const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1";
+    if (isLocalHost) {
+      return "http://localhost:8005";
+    }
+    return `${protocol}//${hostname}:8005`;
+  }
+
+  return "http://localhost:8005";
+}
+
+const API_BASE = resolveApiBase();
 
 export class ApiError extends Error {
   status: number;
@@ -34,7 +57,11 @@ async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ti
     if (isAbortError(error)) {
       throw new ApiError("요청이 취소되었거나 시간 초과되었습니다.", 408);
     }
-    throw error;
+    throw new ApiError(
+      "백엔드에 연결하지 못했습니다. 서버 실행 상태와 NEXT_PUBLIC_API_URL 설정을 확인하세요.",
+      0,
+      error,
+    );
   } finally {
     clearTimeout(timeoutId);
   }
@@ -107,9 +134,27 @@ export async function generateOpsTemplateApi(domain: string): Promise<{ template
   return response.json();
 }
 
-export async function downloadTemplateApi(domain: string): Promise<Blob> {
+export async function downloadTemplateApi(
+  domain: string,
+  recommendation?: {
+    harnessType?: string;
+    modelRouting?: string[];
+    workflow?: string[];
+    mcp?: string[];
+    rules?: string[];
+    reason?: string;
+    subagentCandidates?: string[];
+    dynamicViews?: string[];
+    officialCategories?: {
+      opencode: string[];
+      claudecode: string[];
+    };
+  },
+): Promise<Blob> {
   const response = await fetchWithTimeout(`${API_BASE}/api/ops-templates/generate-zip?domain=${encodeURIComponent(domain)}`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(recommendation ?? {}),
   });
   await ensureOk(response, "템플릿 ZIP 생성 실패");
   return response.blob();
@@ -132,6 +177,11 @@ export async function crawlGithubApi(limit: number): Promise<Response> {
 export async function crawlHnApi(limit: number): Promise<Response> {
   const response = await fetchWithTimeout(`${API_BASE}/api/crawl/hn?limit=${limit}`, { method: "POST" });
   return ensureOk(response, "HN 크롤 요청 실패");
+}
+
+export async function crawlGeekNewsApi(limit: number): Promise<Response> {
+  const response = await fetchWithTimeout(`${API_BASE}/api/crawl/geeknews?limit=${limit}`, { method: "POST" });
+  return ensureOk(response, "GeekNews 크롤 요청 실패");
 }
 
 export async function crawlYoutubeApi(url: string): Promise<Response> {
@@ -173,8 +223,17 @@ export async function fetchOperationPostsApi(signal?: AbortSignal): Promise<Oper
   return data.map(mapOperationPost);
 }
 
-export async function fetchRecommendedSettingsApi(): Promise<RecommendedSetting[]> {
-  const response = await fetchWithTimeout(`${API_BASE}/api/recommendations`);
+export async function fetchRecommendedSettingsApi(params?: {
+  client_engine?: string;
+  game_genre?: string;
+  dev_language?: string;
+}): Promise<RecommendedSetting[]> {
+  const search = new URLSearchParams();
+  if (params?.client_engine) search.set("client_engine", params.client_engine);
+  if (params?.game_genre) search.set("game_genre", params.game_genre);
+  if (params?.dev_language) search.set("dev_language", params.dev_language);
+  const query = search.toString();
+  const response = await fetchWithTimeout(`${API_BASE}/api/recommendations${query ? `?${query}` : ""}`);
   await ensureOk(response, "추천 설정 조회 실패");
   return response.json();
 }

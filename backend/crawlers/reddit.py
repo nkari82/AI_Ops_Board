@@ -220,7 +220,10 @@ class RedditCrawler:
         if not html:
             return []
 
-        soup = BeautifulSoup(html, "lxml")
+        # Reddit RSS sometimes double-escapes markup (e.g. "&lt;div&gt;")
+        # Unescape first so BeautifulSoup can parse actual tags.
+        decoded_html = unescape(str(html))
+        soup = BeautifulSoup(decoded_html, "lxml")
         for tag in soup(["script", "style", "iframe", "noscript"]):
             tag.decompose()
 
@@ -250,7 +253,8 @@ class RedditCrawler:
     def _extract_links(self, html: str, base_url: str) -> List[str]:
         if not html:
             return []
-        soup = BeautifulSoup(html, "lxml")
+        decoded_html = unescape(str(html))
+        soup = BeautifulSoup(decoded_html, "lxml")
         links: List[str] = []
         for anchor in soup.find_all("a", href=True):
             href = self._clean_text(anchor.get("href", ""))

@@ -97,8 +97,8 @@ export type UserPost = {
 export type LlmModel = {
   id: string;
   name: string;
-  provider: "Local" | "Groq" | "Google AI Studio" | "OpenRouter" | "Claude" | "OpenAI";
-  cost: "free" | "cheap" | "paid";
+  provider: "Local" | "Groq" | "Google AI Studio" | "OpenRouter" | "Claude" | "OpenAI" | "Codex CLI";
+  cost: "free" | "cheap" | "paid" | "subscription";
   role: string;
   endpoint: string;
   enabled: boolean;
@@ -115,4 +115,10 @@ export type RecommendedSetting = {
   reason: string;
   evidenceCount?: number;
   feedbackCount?: number;
+  subagentCandidates?: string[];
+  dynamicViews?: string[];
+  officialCategories?: {
+    opencode: string[];
+    claudecode: string[];
+  };
 };

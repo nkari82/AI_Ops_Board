@@ -64,6 +64,14 @@ class ContentAnalyzer:
             return "groq"
         if getattr(_SETTINGS, "OPENROUTER_API_KEY", None):
             return "openrouter"
+        if getattr(_SETTINGS, "MISTRAL_API_KEY", None):
+            return "mistral"
+        if getattr(_SETTINGS, "DEEPSEEK_API_KEY", None):
+            return "deepseek"
+        if getattr(_SETTINGS, "CEREBRAS_API_KEY", None):
+            return "cerebras"
+        if getattr(_SETTINGS, "SAMBANOVA_API_KEY", None):
+            return "sambanova"
         if getattr(_SETTINGS, "HUGGINGFACE_TOKEN", None):
             return "huggingface"
         return "gemini"
@@ -92,40 +100,51 @@ class ContentAnalyzer:
         )
 
         summary_ko = (card_fields.get("summary_ko") or "").strip()
+        if self._looks_like_llm_failure(summary_ko):
+            summary_ko = ""
         if not summary_ko:
             summary_ko = await self._generate_summary(normalized_content)
 
         category = (card_fields.get("category") or "").strip()
-        if category not in _BOARD_CATEGORIES:
+        if self._looks_like_llm_failure(category) or category not in _BOARD_CATEGORIES:
             category = await self._classify_category(normalized_content, summary_ko)
         category = self._normalize_operational_category(category, normalized_content, summary_ko)
 
         domain_value = (card_fields.get("domain") or "").strip()
-        if domain_value not in _DOMAINS:
+        if self._looks_like_llm_failure(domain_value) or domain_value not in _DOMAINS:
             domain_value = await self._classify_domain(normalized_content, summary_ko, domain_hint)
 
         title_ko = (card_fields.get("title_ko") or "").strip()
+        if self._looks_like_llm_failure(title_ko):
+            title_ko = ""
         original_title = (title or "").strip()
         if not title_ko:
             title_ko = original_title
 
-        # 카드 접힘 UI에서 한글 정보가 보이도록 보강
+        # LLM 호출 최소화: title/summary는 1차 구조화 호출 결과를 우선 사용하고 추가 번역 호출은 생략
         if original_title and not self._contains_korean(title_ko):
-            title_ko = await self._translate_to_korean(original_title, max_chars=180)
-            if not self._contains_korean(title_ko):
-                title_ko = f"원문 제목: {original_title}"
+            # 한국어가 아닌 원문 제목은 title_ko에 그대로 저장하지 않고 원문 유지 fallback만 수행
+            title_ko = original_title
 
         if summary_ko and not self._contains_korean(summary_ko):
-            summary_ko = await self._translate_to_korean(summary_ko, max_chars=700)
-            if not self._contains_korean(summary_ko):
-                summary_ko = f"원문 요약(번역 실패): {summary_ko[:220]}"
-
+            summary_ko = self._fallback_summary(normalized_content)
         score = self._calculate_score(normalized_content, summary_ko)
-        tags = await self._extract_tags(normalized_content, summary_ko)
+
+        tags_from_structured = card_fields.get("tags")
+        if isinstance(tags_from_structured, list):
+            tags = [str(x).strip() for x in tags_from_structured if str(x).strip()][:5]
+        else:
+            tags = await self._extract_tags(normalized_content, summary_ko)
+
+        tech_from_structured = card_fields.get("tech_stack")
+        if isinstance(tech_from_structured, list):
+            tech_stack = [str(x).strip() for x in tech_from_structured if str(x).strip()][:3]
+        else:
+            tech_stack = await self._extract_tech_stack(normalized_content, summary_ko)
+
         related_concepts = await self._suggest_related_concepts(normalized_content, summary_ko)
         risk = await self._assess_risk(normalized_content, summary_ko)
         doc_type = self._classify_type(normalized_content, summary_ko)
-        tech_stack = await self._extract_tech_stack(normalized_content, summary_ko)
 
         return {
             "title_ko": title_ko,
@@ -270,21 +289,55 @@ Text:
             return None
         return None
 
+    def _extract_delimited_card_fields(self, raw_text: str) -> dict[str, Any]:
+        text = (raw_text or "").strip()
+        if not text:
+            return {}
+
+        def pick(tag: str) -> str | None:
+            m = re.search(rf"\[{tag}\]([\s\S]*?)\[/{tag}\]", text)
+            if not m:
+                return None
+            value = m.group(1).strip()
+            return value or None
+
+        result: dict[str, Any] = {}
+        for field, tag in [
+            ("title_ko", "TITLE_KO"),
+            ("summary_ko", "SUMMARY_KO"),
+            ("category", "CATEGORY"),
+            ("domain", "DOMAIN"),
+        ]:
+            value = pick(tag)
+            if value:
+                result[field] = value
+
+        tags = pick("TAGS")
+        tech_stack = pick("TECH_STACK")
+        if tags:
+            result["tags"] = self._parse_llm_list(tags, limit=5)
+        if tech_stack:
+            result["tech_stack"] = self._parse_llm_list(tech_stack, limit=3)
+
+        return result
+
     async def _classify_card_fields(
         self,
         *,
         title: str,
         content: str,
         domain_hint: str | None,
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         """단일 LLM 호출로 카드 핵심 필드 JSON을 생성.
 
-        기대 JSON:
+        기대 JSON(+구분자 폴백):
         {
           "title_ko": "...",
           "summary_ko": "...",  // 2~3줄 한글 요약
           "category": "...",    // _BOARD_CATEGORIES 중 1개
-          "domain": "..."       // _DOMAINS 중 1개
+          "domain": "...",      // _DOMAINS 중 1개
+          "tags": ["..."],
+          "tech_stack": ["..."]
         }
         """
         text = (content or "").strip()
@@ -300,6 +353,8 @@ Return JSON ONLY with the following keys:
 - summary_ko: 2~3 lines Korean summary of the content.
 - category: choose exactly one from the allowed list.
 - domain: choose exactly one from the allowed list.
+- tags: max 5 items (string list)
+- tech_stack: max 3 items (string list)
 
 Allowed categories:
 {json.dumps(_BOARD_CATEGORIES, ensure_ascii=False)}
@@ -328,6 +383,14 @@ Title:
 
 Content:
 {text[:2500]}
+
+If you cannot produce JSON, output with exact delimiters below:
+[TITLE_KO]...[/TITLE_KO]
+[SUMMARY_KO]...[/SUMMARY_KO]
+[CATEGORY]...[/CATEGORY]
+[DOMAIN]...[/DOMAIN]
+[TAGS]tag1,tag2[/TAGS]
+[TECH_STACK]tech1,tech2[/TECH_STACK]
 """
         try:
             raw = await self.llm_router.generate(
@@ -337,14 +400,21 @@ Content:
                 temperature=0.0,
             )
             obj = self._extract_json_object(raw)
-            if not obj:
-                return {}
+            result: dict[str, Any] = {}
+            if obj:
+                for key in ["title_ko", "summary_ko", "category", "domain"]:
+                    value = obj.get(key)
+                    if isinstance(value, str) and value.strip():
+                        result[key] = value.strip()
 
-            result: dict[str, str] = {}
-            for key in ["title_ko", "summary_ko", "category", "domain"]:
-                value = obj.get(key)
-                if isinstance(value, str) and value.strip():
-                    result[key] = value.strip()
+                tags = obj.get("tags")
+                tech_stack = obj.get("tech_stack")
+                if isinstance(tags, list):
+                    result["tags"] = [str(x).strip() for x in tags if str(x).strip()][:5]
+                if isinstance(tech_stack, list):
+                    result["tech_stack"] = [str(x).strip() for x in tech_stack if str(x).strip()][:3]
+            else:
+                result = self._extract_delimited_card_fields(raw)
 
             # Validate label constraints; if invalid, drop so caller falls back
             if result.get("category") not in _BOARD_CATEGORIES:
@@ -644,8 +714,12 @@ Text:
         # Fallback heuristic (broader than before)
         lowered = text.lower()
         if any(kw in lowered for kw in ["opencode", "open code", "claude code", "mcp", "plugin", "플러그인", "integration", "connector", "agent", "harness", "orchestr"]):
-            # 하네스 운용 템플릿 문맥이면 실전 운용, 아니면 플러그인/MCP
-            return "실전 운용" if self._has_operational_markers(content, summary) else "플러그인/MCP"
+            # 하네스 운용 템플릿 문맥이 충분히 강한 경우에만 실전 운용으로 승격
+            if self._has_operational_markers(content, summary) and any(
+                marker in lowered for marker in ["runbook", "playbook", "incident", "deploy", "release", "운영", "운용", "체크리스트"]
+            ):
+                return "실전 운용"
+            return "플러그인/MCP"
         if any(kw in lowered for kw in ["pitfall", "gotcha", "warning", "주의", "함정", "caution", "security", "취약", "attack"]):
             return "주의/함정"
         if any(kw in lowered for kw in ["architecture", "아키텍처", "design pattern", "system design", "scalab", "throughput", "latency", "component", "microservice"]):

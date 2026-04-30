@@ -30,6 +30,14 @@ def _default_text_provider() -> str:
         return "groq"
     if settings.OPENROUTER_API_KEY:
         return "openrouter"
+    if settings.MISTRAL_API_KEY:
+        return "mistral"
+    if settings.DEEPSEEK_API_KEY:
+        return "deepseek"
+    if settings.CEREBRAS_API_KEY:
+        return "cerebras"
+    if settings.SAMBANOVA_API_KEY:
+        return "sambanova"
     if settings.HUGGINGFACE_TOKEN:
         return "huggingface"
     return "pollinations"

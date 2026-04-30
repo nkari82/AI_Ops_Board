@@ -23,6 +23,7 @@ function formatKoreanDateTime(value?: string | null): string {
 export default function SettingsPage() {
   const [status, setStatus] = useState("");
   const [llmPrompt, setLlmPrompt] = useState("health check");
+  const [llmProviderSelect, setLlmProviderSelect] = useState<string>("auto");
   const [llmStatus, setLlmStatus] = useState<string>("");
   const [llmProvider, setLlmProvider] = useState<string>("-");
   const [llmResponse, setLlmResponse] = useState<string>("");
@@ -105,7 +106,10 @@ export default function SettingsPage() {
     setLlmStatus("LLM 테스트 중...");
     setLlmResponse("");
     try {
-      const data = await testLlmApi(llmPrompt || "health check");
+      const data = await testLlmApi(
+        llmPrompt || "health check",
+        llmProviderSelect === "auto" ? undefined : llmProviderSelect,
+      );
       setLlmStatus(data.status === "success" ? "성공" : "실패");
       setLlmProvider(data.provider || "-");
       setLlmResponse((data.response || data.detail || "").toString());
@@ -231,7 +235,7 @@ export default function SettingsPage() {
           </div>
           <div className="flex items-center gap-2">
             <Link href="/recommendations">
-              <Button variant="outline">하네스 추천셋팅</Button>
+              <Button variant="outline">하네스 운영</Button>
             </Link>
             <Link href="/">
               <Button variant="outline">보드로 돌아가기</Button>
@@ -244,9 +248,26 @@ export default function SettingsPage() {
         <section className="grid gap-3 md:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
             <div className="mb-2 text-sm font-semibold text-slate-700">LLM Test</div>
-            <div className="flex gap-2">
+            <div className="grid gap-2 md:grid-cols-[180px_1fr_auto]">
+              <select
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                value={llmProviderSelect}
+                onChange={(e) => setLlmProviderSelect(e.target.value)}
+              >
+                <option value="auto">auto (기본 라우팅)</option>
+                <option value="gemini">gemini</option>
+                <option value="pollinations">pollinations</option>
+                <option value="groq">groq</option>
+                <option value="openrouter">openrouter</option>
+                <option value="mistral">mistral</option>
+                <option value="deepseek">deepseek</option>
+                <option value="cerebras">cerebras</option>
+                <option value="sambanova">sambanova</option>
+                <option value="huggingface">huggingface</option>
+                <option value="vllm">vllm</option>
+              </select>
               <input
-                className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 value={llmPrompt}
                 onChange={(e) => setLlmPrompt(e.target.value)}
                 placeholder="테스트 프롬프트"

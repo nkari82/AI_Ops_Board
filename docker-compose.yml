@@ -8,7 +8,7 @@ services:
       - "${FRONTEND_PORT:-3005}:3000"
     environment:
       - NODE_ENV=production
-      - API_URL=http://backend:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8005
     depends_on:
       - backend
     restart: unless-stopped
@@ -18,9 +18,14 @@ services:
   # Redis for Celery
   redis:
     image: redis:alpine
-    command: ["redis-server", "--requirepass", "password123"]
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-password123}"]
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-password123}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - ai-ops-network
     restart: unless-stopped
@@ -34,12 +39,25 @@ services:
       - "${BACKEND_PORT:-8005}:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/aiopsboard
-      - REDIS_URL=redis://:password123@redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-password123}@redis:6379/0
       - REDDIT_CLIENT_ID=${REDDIT_CLIENT_ID}
       - REDDIT_CLIENT_SECRET=${REDDIT_CLIENT_SECRET}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
       - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - MISTRAL_MODEL=${MISTRAL_MODEL}
+      - MISTRAL_BASE_URL=${MISTRAL_BASE_URL}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL}
+      - CEREBRAS_API_KEY=${CEREBRAS_API_KEY}
+      - CEREBRAS_MODEL=${CEREBRAS_MODEL}
+      - CEREBRAS_BASE_URL=${CEREBRAS_BASE_URL}
+      - SAMBANOVA_API_KEY=${SAMBANOVA_API_KEY}
+      - SAMBANOVA_MODEL=${SAMBANOVA_MODEL}
+      - SAMBANOVA_BASE_URL=${SAMBANOVA_BASE_URL}
       - GOOGLE_AI_STUDIO_KEY=${GOOGLE_AI_STUDIO_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL}
       - GEMINI_BASE_URL=${GEMINI_BASE_URL}
@@ -47,9 +65,9 @@ services:
       - POLLINATIONS_TEXT_MODEL=${POLLINATIONS_TEXT_MODEL}
       - POLLINATIONS_BASE_URL=${POLLINATIONS_BASE_URL}
       - LLM_FAILOVER_ENABLED=${LLM_FAILOVER_ENABLED:-true}
-      - LLM_FAILOVER_ORDER=${LLM_FAILOVER_ORDER:-gemini,pollinations,groq,openrouter,huggingface,vllm}
+      - LLM_FAILOVER_ORDER=${LLM_FAILOVER_ORDER:-gemini,pollinations,groq,openrouter,mistral,deepseek,cerebras,sambanova,huggingface,vllm}
       - LLM_FAILOVER_ON_STATUS=${LLM_FAILOVER_ON_STATUS:-429,503,504}
-      - CRAWL_ENABLED_SOURCES=${CRAWL_ENABLED_SOURCES:-reddit,github,hn,youtube}
+      - CRAWL_ENABLED_SOURCES=${CRAWL_ENABLED_SOURCES:-reddit,github,hn,youtube,geeknews}
       - REDDIT_USE_RSS=${REDDIT_USE_RSS:-true}
       - REDDIT_RSS_FEEDS=${REDDIT_RSS_FEEDS:-https://www.reddit.com/r/LocalLLaMA/.rss}
       - REDDIT_RSS_MAX_CONTENT_CHUNKS=${REDDIT_RSS_MAX_CONTENT_CHUNKS:-4}
@@ -69,11 +87,19 @@ services:
       - YOUTUBE_SEARCH_DEDUP_TTL_SECONDS=${YOUTUBE_SEARCH_DEDUP_TTL_SECONDS:-900}
       - YOUTUBE_SEARCH_RATE_LIMIT_WINDOW_SECONDS=${YOUTUBE_SEARCH_RATE_LIMIT_WINDOW_SECONDS:-60}
       - YOUTUBE_SEARCH_RATE_LIMIT_MAX_REQUESTS=${YOUTUBE_SEARCH_RATE_LIMIT_MAX_REQUESTS:-5}
+      - GEEKNEWS_RSS_URL=${GEEKNEWS_RSS_URL:-https://news.hada.io/rss/news}
       - MIN_CLASSIFIABLE_CONTENT_LEN=${MIN_CLASSIFIABLE_CONTENT_LEN:-120}
       - MIN_CLASSIFIABLE_SIGNAL_LEN=${MIN_CLASSIFIABLE_SIGNAL_LEN:-160}
     depends_on:
       - postgres
+      - redis
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - ai-ops-network
     volumes:
@@ -89,7 +115,23 @@ services:
       - ./backend:/app
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/aiopsboard
-      - REDIS_URL=redis://:password123@redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-password123}@redis:6379/0
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - MISTRAL_MODEL=${MISTRAL_MODEL}
+      - MISTRAL_BASE_URL=${MISTRAL_BASE_URL}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL}
+      - CEREBRAS_API_KEY=${CEREBRAS_API_KEY}
+      - CEREBRAS_MODEL=${CEREBRAS_MODEL}
+      - CEREBRAS_BASE_URL=${CEREBRAS_BASE_URL}
+      - SAMBANOVA_API_KEY=${SAMBANOVA_API_KEY}
+      - SAMBANOVA_MODEL=${SAMBANOVA_MODEL}
+      - SAMBANOVA_BASE_URL=${SAMBANOVA_BASE_URL}
       - GOOGLE_AI_STUDIO_KEY=${GOOGLE_AI_STUDIO_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL}
       - GEMINI_BASE_URL=${GEMINI_BASE_URL}
@@ -97,9 +139,9 @@ services:
       - POLLINATIONS_TEXT_MODEL=${POLLINATIONS_TEXT_MODEL}
       - POLLINATIONS_BASE_URL=${POLLINATIONS_BASE_URL}
       - LLM_FAILOVER_ENABLED=${LLM_FAILOVER_ENABLED:-true}
-      - LLM_FAILOVER_ORDER=${LLM_FAILOVER_ORDER:-gemini,pollinations,groq,openrouter,huggingface,vllm}
+      - LLM_FAILOVER_ORDER=${LLM_FAILOVER_ORDER:-gemini,pollinations,groq,openrouter,mistral,deepseek,cerebras,sambanova,huggingface,vllm}
       - LLM_FAILOVER_ON_STATUS=${LLM_FAILOVER_ON_STATUS:-429,503,504}
-      - CRAWL_ENABLED_SOURCES=${CRAWL_ENABLED_SOURCES:-reddit,github,hn,youtube}
+      - CRAWL_ENABLED_SOURCES=${CRAWL_ENABLED_SOURCES:-reddit,github,hn,youtube,geeknews}
       - REDDIT_USE_RSS=${REDDIT_USE_RSS:-true}
       - REDDIT_RSS_FEEDS=${REDDIT_RSS_FEEDS:-https://www.reddit.com/r/LocalLLaMA/.rss}
       - REDDIT_RSS_MAX_CONTENT_CHUNKS=${REDDIT_RSS_MAX_CONTENT_CHUNKS:-4}
@@ -119,6 +161,7 @@ services:
       - YOUTUBE_SEARCH_DEDUP_TTL_SECONDS=${YOUTUBE_SEARCH_DEDUP_TTL_SECONDS:-900}
       - YOUTUBE_SEARCH_RATE_LIMIT_WINDOW_SECONDS=${YOUTUBE_SEARCH_RATE_LIMIT_WINDOW_SECONDS:-60}
       - YOUTUBE_SEARCH_RATE_LIMIT_MAX_REQUESTS=${YOUTUBE_SEARCH_RATE_LIMIT_MAX_REQUESTS:-5}
+      - GEEKNEWS_RSS_URL=${GEEKNEWS_RSS_URL:-https://news.hada.io/rss/news}
       - MIN_CLASSIFIABLE_CONTENT_LEN=${MIN_CLASSIFIABLE_CONTENT_LEN:-120}
       - MIN_CLASSIFIABLE_SIGNAL_LEN=${MIN_CLASSIFIABLE_SIGNAL_LEN:-160}
     depends_on:
@@ -139,6 +182,11 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
     networks:
       - ai-ops-network

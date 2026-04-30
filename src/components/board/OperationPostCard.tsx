@@ -7,6 +7,30 @@ import { CompareBox } from "@/components/shared/CompareBox";
 import { riskClass, sourceLabel } from "@/lib/boardUtils";
 import { cn } from "@/lib/utils";
 
+function decodeHtmlEntities(value: string): string {
+  // Two-pass decode handles patterns like "&amp;#39;" -> "&#39;" -> "'"
+  let text = String(value ?? "");
+  for (let i = 0; i < 2; i += 1) {
+    text = text
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, "\"")
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num, 10)));
+  }
+  return text;
+}
+
+function sanitizeRedditRssLikeText(value: string): string {
+  const decoded = decodeHtmlEntities(value);
+  // Remove HTML comments first, then strip tags.
+  const withoutComments = decoded.replace(/<!--([\s\S]*?)-->/g, " ");
+  const withoutTags = withoutComments.replace(/<[^>]*>/g, " ");
+  return withoutTags.replace(/\s+/g, " ").trim();
+}
+
 interface OperationPostCardProps {
   post: OperationPost;
 }
@@ -62,7 +86,7 @@ export function OperationPostCard({ post }: OperationPostCardProps) {
           )}
         </div>
         <p className={cn("mt-2 text-sm leading-6 text-slate-600", !isExpanded && "line-clamp-3")}>
-          {post.summaryKo || post.summary || "요약이 없습니다."}
+          {sanitizeRedditRssLikeText(post.summaryKo || post.summary || "요약이 없습니다.")}
         </p>
 
         {isExpanded && (
@@ -70,13 +94,7 @@ export function OperationPostCard({ post }: OperationPostCardProps) {
             <div>
               <div className="text-xs font-bold uppercase tracking-wide text-slate-500">요약 전체</div>
               <div className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                {post.summaryKo || post.summary || "요약이 없습니다."}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs font-bold uppercase tracking-wide text-slate-500">원문</div>
-              <div className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                {post.content || "원문 내용이 없습니다."}
+                {sanitizeRedditRssLikeText(post.summaryKo || post.summary || "요약이 없습니다.")}
               </div>
             </div>
           </div>
