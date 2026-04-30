@@ -10,6 +10,7 @@
     "validate:env": "python scripts/validate_env.py",
     "smoke:api": "python scripts/smoke_api.py",
     "smoke:api:deep": "python scripts/smoke_api.py --deep",
+    "smoke:api:deep:only": "python scripts/smoke_api.py --deep --deep-only",
     "release:checks": "npm run validate:env && npm run build && python -m compileall backend",
     "release:full": "npm run release:checks && npm run smoke:api",
     "release:full:deep": "npm run release:checks && npm run smoke:api:deep",

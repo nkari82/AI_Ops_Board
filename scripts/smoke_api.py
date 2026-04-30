@@ -191,7 +191,7 @@ def run_youtube_lifecycle_smoke(base: str, timeout: float, query: str, max_resul
     return failures
 
 
-def run(deep: bool, deep_query: str, deep_max_results: int, deep_pages: int) -> int:
+def run(deep: bool, deep_only: bool, deep_query: str, deep_max_results: int, deep_pages: int) -> int:
     timeout = float(os.getenv("SMOKE_TIMEOUT_SECONDS") or "8")
     base = _base_url()
 
@@ -199,7 +199,10 @@ def run(deep: bool, deep_query: str, deep_max_results: int, deep_pages: int) -> 
     print(f"Base URL: {base}")
     print(f"Timeout: {timeout}s")
 
-    failures = run_basic_smoke(base, timeout)
+    failures: list[str] = []
+
+    if not deep_only:
+        failures.extend(run_basic_smoke(base, timeout))
 
     if deep:
         failures.extend(
@@ -226,6 +229,7 @@ def run(deep: bool, deep_query: str, deep_max_results: int, deep_pages: int) -> 
 def main() -> int:
     parser = argparse.ArgumentParser(description="AI Ops Board API smoke tests")
     parser.add_argument("--deep", action="store_true", help="Run deep smoke including YouTube task lifecycle")
+    parser.add_argument("--deep-only", action="store_true", help="Run only deep lifecycle checks (skip baseline GET smoke)")
     parser.add_argument("--query", default=os.getenv("SMOKE_YT_QUERY") or "ai ops automation", help="YouTube deep smoke query")
     parser.add_argument("--max-results", type=int, default=int(os.getenv("SMOKE_YT_MAX_RESULTS") or "2"))
     parser.add_argument("--pages", type=int, default=int(os.getenv("SMOKE_YT_PAGES") or "1"))
@@ -233,6 +237,7 @@ def main() -> int:
 
     return run(
         deep=bool(args.deep),
+        deep_only=bool(args.deep_only),
         deep_query=(args.query or "ai ops automation").strip(),
         deep_max_results=max(1, min(5, int(args.max_results))),
         deep_pages=max(1, min(2, int(args.pages))),

@@ -168,6 +168,35 @@ def _compute_slo_breached(youtube_health: dict[str, Any]) -> bool:
     return False
 
 
+def _compute_consistency_warning(youtube_health: dict[str, Any]) -> dict[str, Any]:
+    requested = int(youtube_health.get("requested", 0) or 0)
+    queued = int(youtube_health.get("queued", 0) or 0)
+    active = int(youtube_health.get("activeCount", 0) or 0)
+    completed = int(youtube_health.get("completed", 0) or 0)
+    failed = int(youtube_health.get("failed", 0) or 0)
+
+    terminal = completed + failed
+    accounted = terminal + active
+
+    warnings: list[str] = []
+    if requested > 0 and accounted > requested + queued:
+        warnings.append("ACCOUNTED_GT_REQUESTED")
+    if min(requested, queued, active, completed, failed) < 0:
+        warnings.append("NEGATIVE_COUNTER_DETECTED")
+    if terminal > requested + queued:
+        warnings.append("TERMINAL_GT_INFLOW")
+
+    return {
+        "ok": len(warnings) == 0,
+        "warnings": warnings,
+        "requested": requested,
+        "queued": queued,
+        "active": active,
+        "completed": completed,
+        "failed": failed,
+    }
+
+
 @router.get("/detailed")
 async def health_detailed() -> dict[str, Any]:
     db_result = await _check_db()
@@ -190,7 +219,10 @@ async def health_detailed() -> dict[str, Any]:
         status = "degraded" if status == "healthy" else status
 
     slo_breached = _compute_slo_breached(youtube_health)
+    consistency = _compute_consistency_warning(youtube_health)
     if slo_breached and status == "healthy":
+        status = "degraded"
+    if not consistency.get("ok", True) and status == "healthy":
         status = "degraded"
 
     return {
@@ -204,5 +236,6 @@ async def health_detailed() -> dict[str, Any]:
             "llm": llm_result,
             "errors": error_tracker.summary(),
             "youtubeSearch": youtube_health,
+            "consistency": consistency,
         },
     }

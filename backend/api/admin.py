@@ -118,6 +118,39 @@ def _aggregate_rss_quality(extra_data_rows: list[Any]) -> dict[str, Any]:
     }
 
 
+def _normalize_rss_quality(raw: dict[str, Any]) -> dict[str, Any]:
+    acceptance_rate = raw.get("acceptanceRate")
+    normalized_acceptance: float | None
+    if acceptance_rate is None:
+        normalized_acceptance = None
+    else:
+        try:
+            parsed = float(acceptance_rate)
+            normalized_acceptance = max(0.0, min(1.0, parsed))
+        except (TypeError, ValueError):
+            normalized_acceptance = None
+
+    skipped_by_reason = raw.get("skippedByReason")
+    normalized_reasons: dict[str, int] = {}
+    if isinstance(skipped_by_reason, dict):
+        for key, value in skipped_by_reason.items():
+            if not isinstance(key, str):
+                continue
+            try:
+                normalized_reasons[key] = max(0, int(value))
+            except (TypeError, ValueError):
+                continue
+
+    return {
+        "entryBlocksTotal": max(0, int(raw.get("entryBlocksTotal", 0) or 0)),
+        "extractedLinksTotal": max(0, int(raw.get("extractedLinksTotal", 0) or 0)),
+        "acceptedLinksTotal": max(0, int(raw.get("acceptedLinksTotal", 0) or 0)),
+        "skippedLinksTotal": max(0, int(raw.get("skippedLinksTotal", 0) or 0)),
+        "acceptanceRate": normalized_acceptance,
+        "skippedByReason": normalized_reasons,
+    }
+
+
 @router.get("/metrics")
 async def get_metrics(db: AsyncSession = Depends(get_db)):
     quality = await quality_monitor.get_quality_metrics(db)
@@ -127,7 +160,7 @@ async def get_metrics(db: AsyncSession = Depends(get_db)):
     rss_rows = await db.scalars(
         select(CrawledPost.extra_data).where(CrawledPost.source_type == "reddit")
     )
-    rss_quality = _aggregate_rss_quality(list(rss_rows))
+    rss_quality = _normalize_rss_quality(_aggregate_rss_quality(list(rss_rows)))
 
     return {
         "quality": quality,

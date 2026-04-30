@@ -255,3 +255,32 @@ export async function fetchHealthDetailedApi(): Promise<{
   return response.json();
 }
 
+export async function fetchCrawlHealthApi(): Promise<{
+  status: string;
+  sources: Record<string, { status: string; detail?: string }>;
+  timestamp: string;
+}> {
+  const response = await fetchWithTimeout(`${API_BASE}/api/crawl/health`);
+  await ensureOk(response, "크롤링 헬스 조회 실패");
+  return response.json();
+}
+
+export async function testLlmApi(prompt = "health check", provider?: string): Promise<{
+  status: string;
+  provider?: string;
+  response?: string;
+  detail?: string;
+}> {
+  const response = await fetchWithTimeout(
+    `${API_BASE}/api/test-llm`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, provider }),
+    },
+    20000,
+  );
+  await ensureOk(response, "LLM 테스트 실패");
+  return response.json();
+}
+

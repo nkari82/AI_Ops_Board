@@ -5,16 +5,12 @@ import type { BoardCategory, Domain } from "@/types";
 import { useBoardData } from "@/hooks/useBoardData";
 import { useCrawler } from "@/hooks/useCrawler";
 import { useTemplateService } from "@/hooks/useTemplateService";
-import { Metric } from "@/components/shared/Metric";
 import { BoardFilters } from "@/components/board/BoardFilters";
 import { OperationPostCard } from "@/components/board/OperationPostCard";
 import { CrawlResultsPanel } from "@/components/crawler/CrawlResultsPanel";
 import { Button } from "@/components/ui/button";
 import {
-  Globe2,
-  Layers3,
   RefreshCw,
-  ShieldAlert,
   Sparkles,
 } from "lucide-react";
 
@@ -115,7 +111,10 @@ export default function AiOpsBoard() {
               {crawling ? "크롤링 중..." : "최신 뉴스 업데이트"}
             </Button>
             <Link href="/recommendations">
-              <Button size="sm" variant="outline">추천 셋팅 보기</Button>
+              <Button size="sm" variant="outline">하네스 추천셋팅</Button>
+            </Link>
+            <Link href="/settings">
+              <Button size="sm" variant="outline">프로젝트 설정</Button>
             </Link>
             <Button size="sm" variant="outline" onClick={testLlmConnection}>
               <Sparkles className="h-3.5 w-3.5 mr-1" />
@@ -138,12 +137,6 @@ export default function AiOpsBoard() {
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
         {/* [REMOVED: RecommendedSettingCard & LlmRouter] */}
-
-        <section className="grid gap-4 md:grid-cols-3">
-          <Metric icon={<Globe2 className="h-5 w-5" />} label="자동 수집 보드" value="크롤링 + AI" caption="실시간 연동" />
-          <Metric icon={<Layers3 className="h-5 w-5" />} label="실전 운용" value="Rule+Skill" caption="AGENTS.md 포함" />
-          <Metric icon={<ShieldAlert className="h-5 w-5" />} label="MCP" value="권한 분리" caption="위험도 라벨링" />
-        </section>
 
         <BoardFilters
           query={query}

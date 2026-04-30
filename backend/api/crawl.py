@@ -225,6 +225,82 @@ def _parse_enabled_sources() -> set[str]:
     return {item.strip().lower() for item in raw.split(",") if item.strip()}
 
 
+def _looks_like_placeholder(value: str | None) -> bool:
+    text = (value or "").strip().lower()
+    if not text:
+        return True
+    placeholder_markers = ["your_", "changeme", "example", "dummy", "token_here", "api_key_here"]
+    return any(marker in text for marker in placeholder_markers)
+
+
+def _build_crawl_health_snapshot() -> dict[str, Any]:
+    enabled = _parse_enabled_sources()
+
+    reddit_rss = bool(getattr(settings, "REDDIT_USE_RSS", True))
+    reddit_feeds = (getattr(settings, "REDDIT_RSS_FEEDS", "") or "").strip()
+    reddit_client_id = (getattr(settings, "REDDIT_CLIENT_ID", "") or "").strip()
+    reddit_client_secret = (getattr(settings, "REDDIT_CLIENT_SECRET", "") or "").strip()
+
+    reddit_status = "disabled"
+    reddit_detail = "source disabled"
+    if "reddit" in enabled:
+        if reddit_rss:
+            if reddit_feeds:
+                reddit_status, reddit_detail = "healthy", "rss mode enabled"
+            else:
+                reddit_status, reddit_detail = "degraded", "rss mode enabled but REDDIT_RSS_FEEDS is empty"
+        else:
+            if not _looks_like_placeholder(reddit_client_id) and not _looks_like_placeholder(reddit_client_secret):
+                reddit_status, reddit_detail = "healthy", "api mode configured"
+            else:
+                reddit_status, reddit_detail = "degraded", "api mode selected but reddit credentials look unset"
+
+    youtube_targets = _parse_youtube_targets()
+    youtube_allow_all = bool(getattr(settings, "YOUTUBE_ALLOW_ALL_WHEN_TARGETS_EMPTY", False))
+    youtube_search_enabled = bool(getattr(settings, "YOUTUBE_SEARCH_ENABLED", True))
+
+    youtube_status = "disabled"
+    youtube_detail = "source disabled"
+    if "youtube" in enabled:
+        if youtube_search_enabled:
+            youtube_status = "healthy"
+            youtube_detail = "search enabled"
+            if not youtube_allow_all and len(youtube_targets) == 0:
+                youtube_detail = "search enabled; direct URL crawl is restricted by empty allow-list"
+        else:
+            youtube_status = "degraded"
+            youtube_detail = "keyword search disabled by YOUTUBE_SEARCH_ENABLED"
+
+    sources = {
+        "reddit": {"status": reddit_status, "detail": reddit_detail},
+        "github": {
+            "status": "healthy" if "github" in enabled else "disabled",
+            "detail": "enabled" if "github" in enabled else "source disabled",
+        },
+        "hn": {
+            "status": "healthy" if "hn" in enabled else "disabled",
+            "detail": "enabled" if "hn" in enabled else "source disabled",
+        },
+        "youtube": {
+            "status": youtube_status,
+            "detail": youtube_detail,
+        },
+    }
+
+    overall = "healthy"
+    source_statuses = [item["status"] for item in sources.values()]
+    if any(s == "degraded" for s in source_statuses):
+        overall = "degraded"
+    if all(s == "disabled" for s in source_statuses):
+        overall = "disabled"
+
+    return {
+        "status": overall,
+        "sources": sources,
+        "timestamp": _utc_now_iso(),
+    }
+
+
 def _ensure_source_enabled(source_name: str) -> None:
     enabled = _parse_enabled_sources()
     if source_name.lower() not in enabled:
@@ -354,6 +430,11 @@ def detect_domain(text: str) -> str:
     if 'react' in text or 'frontend' in text: return '프론트엔드'
     if 'python' in text or 'backend' in text: return '백엔드'
     return '기타'
+@router.get("/health")
+async def crawl_health():
+    return _build_crawl_health_snapshot()
+
+
 @router.post("/reddit")
 async def crawl_reddit(request: CrawlRequest, db: AsyncSession = Depends(get_db)):
     _ensure_source_enabled("reddit")
