@@ -100,7 +100,7 @@ function mapOperationPost(post: OperationPostApi): OperationPost {
     titleKo: post.title_ko ?? null,
     summary: post.summary,
     summaryKo: post.summary_ko ?? null,
-    content: post.content,
+    content: typeof post.content === "string" ? post.content : "",
     category: post.category,
     docType: post.doc_type,
     techStack: Array.isArray(post.tech_stack) ? post.tech_stack : [],

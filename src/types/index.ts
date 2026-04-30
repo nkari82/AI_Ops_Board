@@ -115,6 +115,8 @@ export type RecommendedSetting = {
   reason: string;
   evidenceCount?: number;
   feedbackCount?: number;
+  qualityConfidence?: number;
+  qualityBand?: "low" | "medium" | "high";
   subagentCandidates?: string[];
   dynamicViews?: string[];
   officialCategories?: {

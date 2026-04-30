@@ -50,6 +50,7 @@ export default function AiOpsBoard() {
     isLoading,
     activeDomain,
     previewTemplate,
+    templateError,
     fetchTemplatePreview,
     downloadTemplate,
   } = useTemplateService();
@@ -120,6 +121,7 @@ export default function AiOpsBoard() {
         isLoading={isLoading}
         activeDomain={activeDomain}
         previewTemplate={previewTemplate}
+        templateError={templateError}
         onFetchPreview={fetchTemplatePreview}
         onDownload={downloadTemplate}
       />

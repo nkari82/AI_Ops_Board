@@ -13,6 +13,7 @@ interface CrawlResultsPanelProps {
   isLoading: boolean;
   activeDomain: string | null;
   previewTemplate: string;
+  templateError?: string | null;
   onFetchPreview: (domain: string) => void;
   onDownload: (domain: string) => void;
 }
@@ -23,6 +24,7 @@ export function CrawlResultsPanel({
   isLoading,
   activeDomain,
   previewTemplate,
+  templateError,
   onFetchPreview,
   onDownload,
 }: CrawlResultsPanelProps) {
@@ -71,6 +73,12 @@ export function CrawlResultsPanel({
                   {isLoading && activeDomain === "Backend" ? "생성 중..." : "Backend 보기"}
                 </button>
               </div>
+
+              {templateError && (
+                <div className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  템플릿 미리보기 실패: {templateError}
+                </div>
+              )}
 
               {previewTemplate && (
                 <div className="mt-4 animate-in fade-in rounded border border-slate-200 bg-white p-4 shadow-sm">

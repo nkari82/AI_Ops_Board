@@ -107,25 +107,69 @@ function renderViewContent(
     case "pluginHook":
       return `${baseHeader}\n\n## plugin hook\n${workflowMd}\n\n## routing\n${routeMd}`;
     case "agents":
-      return `# AGENTS.md\n\n## 목표\n${setting.reason}\n\n## 도메인\n- ${domain}\n\n## 운영 규칙\n${rulesMd}\n\n## 작업 흐름\n${workflowMd}`;
+      return `<!-- 이 파일은 하네스 운영 역할과 규칙을 한눈에 보여줍니다. -->\n# ${harnessType === "OpenCode" ? ".opencode/AGENTS.md" : ".claude/CLAUDE.md"}\n\n## 목표\n${setting.reason}\n\n## 도메인\n- ${domain}\n\n## 운영 규칙\n${rulesMd}\n\n## 작업 흐름\n${workflowMd}`;
     case "skill":
-      return `# SKILL.md\n\n## Skill Set (${harnessType})\n${routeMd}\n\n## Domain Specialization\n- ${domain}\n\n## MCP / Plugins\n${mcpMd}`;
+      return `<!-- 이 파일은 공식 skills 폴더에 들어갈 추천 스킬 샘플입니다. -->\n# ${harnessType === "OpenCode" ? ".opencode/skills/<name>/SKILL.md" : ".claude/skills/<name>/SKILL.md"}\n\n## Skill Set (${harnessType})\n${routeMd}\n\n## Domain Specialization\n- ${domain}\n\n## MCP / Plugins\n${mcpMd}`;
     case "rull":
-      return `# RULL.md\n\n## Runtime Unified LLM Rules\n${rulesMd}\n\n## Guardrails\n- 실패 시 재시도/백오프\n- 상태/메트릭 가시화\n- smoke gate 통과 후 배포`;
+      return `<!-- 이 파일은 운영 시 반드시 지켜야 할 규칙을 정의합니다. -->\n# ${harnessType === "OpenCode" ? ".opencode/Rule.md" : ".claude/Rule.md"}\n\n## Runtime Unified LLM Rules\n${rulesMd}\n\n## Guardrails\n- 실패 시 재시도/백오프\n- 상태/메트릭 가시화\n- smoke gate 통과 후 배포`;
     case "openCodeJsonc":
-      return `{
-  // OpenCode harness config
-  "domain": "${domain}",
-  "harnessType": "OpenCode",
-  "modelRouting": ${JSON.stringify(modelRouting, null, 2)},
-  "workflow": ${JSON.stringify(workflow, null, 2)},
-  "rules": ${JSON.stringify(rules, null, 2)},
-  "mcp": ${JSON.stringify(mcp, null, 2)}
+      return `// 이 파일은 OpenCode 공식 스키마(opencode.jsonc)에 맞춘 설정입니다.
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "${modelRouting[0] ?? "anthropic/claude-sonnet-4-5"}",
+  "small_model": "openai/gpt-4.1-mini",
+  "default_agent": "implementer",
+  "instructions": [
+    ".opencode/AGENTS.md",
+    ".opencode/Rule.md",
+    ".opencode/unified-ops.md"
+  ],
+  "agent": {
+    "planner": { "mode": "subagent", "description": "요구사항 분석/리스크 식별" },
+    "implementer": { "mode": "primary", "description": "코드/설정 수정 및 회귀 수정" },
+    "reviewer": { "mode": "subagent", "description": "품질게이트/보안/회귀 검증" }
+  },
+  "command": {
+    "start-work": {
+      "template": "Read {file:.opencode/commands/start-work.md} and execute checklist",
+      "agent": "implementer"
+    },
+    "review-work": {
+      "template": "Read {file:.opencode/commands/review-work.md} and verify quality gates",
+      "agent": "reviewer"
+    }
+  },
+  "mcp": {
+    "filesystem": {
+      "type": "local",
+      "enabled": true,
+      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "."]
+    },
+    "github": {
+      "type": "local",
+      "enabled": true,
+      "command": ["npx", "-y", "@modelcontextprotocol/server-github"],
+      "environment": { "GITHUB_TOKEN": "\${GITHUB_TOKEN}" }
+    }
+  },
+  "plugin": ${JSON.stringify(mcp.slice(0, 16), null, 2)},
+  "permission": { "edit": "allow", "bash": "ask", "webfetch": "ask" },
+  "provider": {
+    "openai": { "disabled": false },
+    "anthropic": { "disabled": false }
+  }
 }`;
     case "claudeCodeJson":
-      return `{
-  "domain": "${domain}",
-  "harnessType": "ClaudeCode",
+      return `// 이 파일은 Claude Code가 공식적으로 읽는 로컬 설정 파일입니다.
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "OPS_DOMAIN": "${domain}"
+  },
+  "model": "${modelRouting[0] ?? ""}",
+  "permissions": {
+    "mode": "plan"
+  },
   "routing": ${JSON.stringify(modelRouting, null, 2)},
   "steps": ${JSON.stringify(workflow, null, 2)},
   "rules": ${JSON.stringify(rules, null, 2)},
@@ -138,7 +182,7 @@ function renderViewContent(
     case "permissionsMatrix":
       return `# Permissions Matrix (${harnessType})\n\n- source: opencode.json.permission\n- domain: ${domain}\n\n## allow\n- Bash(npm run build)\n- Read(src/**)\n- Grep(**/*.ts)\n\n## ask\n- Edit(config/**)\n- WebFetch(domain:*)\n\n## deny\n- Bash(rm -rf *)\n\n## note\n- 에이전트별 permission override를 별도 관리`;
     case "commandsRegistry":
-      return `# Commands Registry\n\n- source: .opencode/command/*.md + opencode.json.command\n\n## commands\n- /start-work\n- /review-work\n- /deploy-check\n\n## placeholders\n- $ARGUMENTS\n- $1, $2\n- @filepath\n- !\`command\``;
+      return `<!-- 이 파일은 하네스 명령어를 공식 commands 폴더에서 인식시키기 위한 샘플입니다. -->\n# ${harnessType === "OpenCode" ? ".opencode/commands/start-work.md" : ".claude/commands/start-work.md"}\n\n## commands\n- /start-work\n- /review-work\n- /deploy-check\n\n## placeholders\n- $ARGUMENTS\n- $1, $2\n- @filepath\n- !\`command\``;
     case "providerConfig":
       return `# Provider Configuration\n\n- source: opencode.json.provider\n- harnessType: ${harnessType}\n\n## routing\n${routeMd}\n\n## policy\n- timeout: 15000ms\n- failover: enabled\n- disabled_providers / enabled_providers 분리\n- subscription providers: Codex CLI`;
     case "toolsRegistry":
@@ -179,10 +223,13 @@ function renderViewContent(
       const official = setting.officialCategories;
       const categories = harnessType === "OpenCode" ? (official?.opencode ?? []) : (official?.claudecode ?? []);
       const source = harnessType === "OpenCode"
-        ? "opencode-ai/opencode 공식 README/Schema"
-        : "Anthropic 공식 Skills/Memory/Tools/MCP 문서";
-      const listMd = categories.length ? categories.map((c) => `- ${c}`).join("\\n") : "- 카테고리 데이터 없음";
-      return `# Official Category Model (${harnessType})\n\n- source: ${source}\n- domain: ${domain}\n\n## recommended categories\n${listMd}`;
+        ? "opencode 공식 configuration 문서"
+        : "Anthropic Claude Code 공식 문서";
+      const skillPathPrefix = harnessType === "OpenCode" ? ".opencode/skills" : ".claude/skills";
+      const listMd = categories.length
+        ? categories.map((c, i) => `- ${skillPathPrefix}/category-${String(i + 1).padStart(2, "0")}-${c.toLowerCase().replace(/[^a-z0-9가-힣]+/g, "-").replace(/^-+|-+$/g, "")}/SKILL.md`).join("\\n")
+        : "- 카테고리 데이터 없음";
+      return `<!-- 이 목록은 공식 skills 폴더에서 인식되는 추천 카테고리 파일 경로입니다. -->\n# Official Category Model (${harnessType})\n\n- source: ${source}\n- domain: ${domain}\n\n## recognized skill files\n${listMd}`;
     }
     case "outputStyles":
       return `# Output Styles\n\n- source: .claude/output-styles/*.md\n\n## style examples\n- teaching\n- explanatory\n- terse\n- custom-harness`;
@@ -259,36 +306,34 @@ export default function RecommendationsPage() {
     [settings, resolvedDomainForApi],
   );
 
-  const dynamicViewSet = useMemo(() => new Set(active?.dynamicViews ?? []), [active]);
-
   const views: Array<{ key: HarnessView; label: string; visible: boolean }> = [
-    { key: "pluginHook", label: "Plugin", visible: true },
-    { key: "agents", label: "AGENTS.md", visible: true },
-    { key: "skill", label: "SKILL.md", visible: true },
-    { key: "rull", label: "RULL.md", visible: true },
-    { key: "pluginMcpList", label: "Plugin/MCP", visible: true },
-    { key: "officialCategoryModel", label: "Official Categories", visible: true },
+    { key: "openCodeJsonc", label: "opencode.jsonc", visible: harnessType === "OpenCode" },
+    { key: "agents", label: harnessType === "OpenCode" ? ".opencode/AGENTS.md" : ".claude/CLAUDE.md", visible: true },
+    { key: "rull", label: harnessType === "OpenCode" ? ".opencode/Rule.md" : ".claude/Rule.md", visible: true },
+    { key: "commandsRegistry", label: harnessType === "OpenCode" ? ".opencode/commands/start-work.md" : ".claude/commands/start-work.md", visible: true },
+    { key: "skill", label: harnessType === "OpenCode" ? ".opencode/skills/<name>/SKILL.md" : ".claude/skills/<name>/SKILL.md", visible: true },
+    { key: "officialCategoryModel", label: harnessType === "OpenCode" ? ".opencode/skills/category-*/SKILL.md" : ".claude/skills/category-*/SKILL.md", visible: true },
 
-    // OpenCode official-focused
-    { key: "openCodeJsonc", label: "OpenCode.jsonc", visible: harnessType === "OpenCode" },
-    { key: "permissionsMatrix", label: "Permissions Matrix", visible: harnessType === "OpenCode" || dynamicViewSet.has("permissionsMatrix") },
-    { key: "commandsRegistry", label: "Commands Registry", visible: harnessType === "OpenCode" || dynamicViewSet.has("commandsRegistry") },
-    { key: "providerConfig", label: "Provider Config", visible: harnessType === "OpenCode" || dynamicViewSet.has("providerConfig") },
-    { key: "toolsRegistry", label: "Tools Registry", visible: harnessType === "OpenCode" || dynamicViewSet.has("toolsRegistry") },
-    { key: "formatterConfig", label: "Formatter Config", visible: harnessType === "OpenCode" },
-    { key: "watcherConfig", label: "Watcher", visible: harnessType === "OpenCode" },
-    { key: "serverConfig", label: "Server Config", visible: harnessType === "OpenCode" },
-    { key: "compactionConfig", label: "Compaction", visible: harnessType === "OpenCode" || dynamicViewSet.has("compactionConfig") },
-    { key: "instructionsRegistry", label: "Instructions", visible: harnessType === "OpenCode" },
-    { key: "configPrecedence", label: "Config Precedence", visible: harnessType === "OpenCode" },
-    { key: "mcpOauthStatus", label: "MCP OAuth", visible: harnessType === "OpenCode" },
+    // OpenCode 공식 인식 항목 외 참조 뷰
+    { key: "pluginHook", label: "Plugin", visible: false },
+    { key: "pluginMcpList", label: "Plugin/MCP", visible: false },
+    { key: "permissionsMatrix", label: "Permissions Matrix", visible: false },
+    { key: "providerConfig", label: "Provider Config", visible: false },
+    { key: "toolsRegistry", label: "Tools Registry", visible: false },
+    { key: "formatterConfig", label: "Formatter Config", visible: false },
+    { key: "watcherConfig", label: "Watcher", visible: false },
+    { key: "serverConfig", label: "Server Config", visible: false },
+    { key: "compactionConfig", label: "Compaction", visible: false },
+    { key: "instructionsRegistry", label: "Instructions", visible: false },
+    { key: "configPrecedence", label: "Config Precedence", visible: false },
+    { key: "mcpOauthStatus", label: "MCP OAuth", visible: false },
 
-    // Claude Code official-focused
-    { key: "claudeCodeJson", label: "ClaudeCode.json", visible: harnessType === "ClaudeCode" },
-    { key: "permissionModes", label: "Permission Modes", visible: harnessType === "ClaudeCode" },
-    { key: "hooksConfig", label: "Hooks Config", visible: harnessType === "ClaudeCode" || dynamicViewSet.has("hooksConfig") },
-    { key: "autoMemory", label: "Auto Memory", visible: harnessType === "ClaudeCode" || dynamicViewSet.has("autoMemory") },
-    { key: "rulesManager", label: "Rules Manager", visible: harnessType === "ClaudeCode" },
+    // Claude Code 공식 인식 항목
+    { key: "claudeCodeJson", label: ".claude/settings.json", visible: harnessType === "ClaudeCode" },
+    { key: "permissionModes", label: "Permission Modes", visible: false },
+    { key: "hooksConfig", label: "Hooks Config", visible: false },
+    { key: "autoMemory", label: "Auto Memory", visible: false },
+    { key: "rulesManager", label: "Rules Manager", visible: false },
 
     // Subagent entries are rendered dynamically in the main button row (no separate list box)
     { key: "subagentsManager", label: "Subagents", visible: false },
@@ -296,11 +341,11 @@ export default function RecommendationsPage() {
     { key: "subagentImplementer", label: "Subagent: Implementer", visible: false },
     { key: "subagentReviewer", label: "Subagent: Reviewer", visible: false },
 
-    { key: "outputStyles", label: "Output Styles", visible: harnessType === "ClaudeCode" },
-    { key: "sandboxConfig", label: "Sandbox", visible: harnessType === "ClaudeCode" || dynamicViewSet.has("sandboxConfig") },
-    { key: "modelConfig", label: "Model Config", visible: harnessType === "ClaudeCode" },
-    { key: "statusLine", label: "Status Line", visible: harnessType === "ClaudeCode" },
-    { key: "worktreeInclude", label: ".worktreeinclude", visible: harnessType === "ClaudeCode" },
+    { key: "outputStyles", label: "Output Styles", visible: false },
+    { key: "sandboxConfig", label: "Sandbox", visible: false },
+    { key: "modelConfig", label: "Model Config", visible: false },
+    { key: "statusLine", label: "Status Line", visible: false },
+    { key: "worktreeInclude", label: ".worktreeinclude", visible: false },
   ];
 
   const visibleViews = views.filter((v) => v.visible);

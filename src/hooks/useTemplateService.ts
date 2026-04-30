@@ -7,6 +7,7 @@ export function useTemplateService() {
   const [isLoading, setIsLoading] = useState(false);
   const [activeDomain, setActiveDomain] = useState<string | null>(null);
   const [previewTemplate, setPreviewTemplate] = useState<string>("");
+  const [templateError, setTemplateError] = useState<string | null>(null);
 
   const generateOpsTemplate = useCallback(async (domain: string) => {
     setGenerating(true);
@@ -22,13 +23,15 @@ export function useTemplateService() {
 
   const fetchTemplatePreview = useCallback(async (domain: string) => {
     setIsLoading(true);
+    setTemplateError(null);
     setActiveDomain(domain);
     try {
       const data = await generateOpsTemplateApi(domain);
       setPreviewTemplate(data.template);
     } catch (e) {
       console.error("Template preview failed:", e);
-      alert("템플릿 생성에 실패했습니다.");
+      const message = e instanceof Error ? e.message : "템플릿 생성에 실패했습니다.";
+      setTemplateError(message);
     } finally {
       setIsLoading(false);
     }
@@ -55,6 +58,7 @@ export function useTemplateService() {
     isLoading,
     activeDomain,
     previewTemplate,
+    templateError,
     generateOpsTemplate,
     fetchTemplatePreview,
     downloadTemplate,
