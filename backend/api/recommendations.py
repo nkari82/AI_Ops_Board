@@ -59,6 +59,23 @@ except ModuleNotFoundError:
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 recommendation_engine = RecommendationEngine()
 
+
+def _select_replay_candidate(
+    snapshot_id: str,
+    snapshot: dict[str, Any],
+    settings: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, bool]:
+    for item in settings:
+        if isinstance(item, dict) and str(item.get("recommendationSnapshotId") or "") == snapshot_id:
+            return item, False
+
+    snapshot_domain = str(snapshot.get("domain") or "")
+    for item in settings:
+        if isinstance(item, dict) and str(item.get("domain") or "") == snapshot_domain:
+            return item, True
+
+    return None, True
+
 _ALLOWED_DOMAINS = [
     "게임 클라이언트",
     "게임 서버",
@@ -474,6 +491,41 @@ async def replay_recommendation_snapshot(snapshot_id: str = Query(..., min_lengt
         "snapshotId": snapshot_id,
         "snapshot": snapshot,
         "replayHint": "Use snapshot.domain and snapshot.inputFilters to request /api/recommendations with identical filters.",
+    }
+
+
+@router.post("/replay/execute")
+async def replay_execute_recommendation_snapshot(
+    snapshot_id: str = Query(..., min_length=6),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    store = load_snapshot_store()
+    snapshot = store.get(snapshot_id)
+    if not isinstance(snapshot, dict):
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    input_filters = snapshot.get("inputFilters") if isinstance(snapshot.get("inputFilters"), dict) else {}
+    client_engine = str(input_filters.get("clientEngine") or "").strip() or None
+    game_genre = str(input_filters.get("gameGenre") or "").strip() or None
+    dev_language = str(input_filters.get("devLanguage") or "").strip() or None
+
+    settings = await get_recommendations(
+        db=db,
+        client_engine=client_engine,
+        game_genre=game_genre,
+        dev_language=dev_language,
+    )
+    candidate, drifted = _select_replay_candidate(snapshot_id, snapshot, settings)
+
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="No replayable recommendation found")
+
+    return {
+        "status": "ok",
+        "snapshotId": snapshot_id,
+        "drifted": drifted,
+        "snapshot": snapshot,
+        "replayedRecommendation": candidate,
     }
 
 

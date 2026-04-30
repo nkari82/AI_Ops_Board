@@ -44,6 +44,13 @@ class TemplateManager:
     def __init__(self):
         self.llm_router = LLMRouter()
 
+    def _parse_json_relaxed(self, text: str) -> dict[str, Any]:
+        stripped = re.sub(r"^\s*//.*$", "", text, flags=re.MULTILINE).strip()
+        parsed = json.loads(stripped)
+        if not isinstance(parsed, dict):
+            raise RuntimeError("Config content is not a JSON object")
+        return parsed
+
     def _validate_required_files(self, bundle: dict[str, str], harness_type: str) -> None:
         if harness_type == "ClaudeCode":
             required_files = {
@@ -65,6 +72,48 @@ class TemplateManager:
             raise RuntimeError(
                 f"Template bundle integrity check failed ({harness_type}): missing required files: {', '.join(missing)}"
             )
+
+    def _validate_required_content(self, bundle: dict[str, str], harness_type: str) -> None:
+        if harness_type == "ClaudeCode":
+            settings = self._parse_json_relaxed(bundle[".claude/settings.json"])
+            if "$schema" not in settings:
+                raise RuntimeError("Template bundle integrity check failed (ClaudeCode): .claude/settings.json missing $schema")
+            if "permissions" not in settings:
+                raise RuntimeError("Template bundle integrity check failed (ClaudeCode): .claude/settings.json missing permissions")
+
+            claude_md = bundle[".claude/CLAUDE.md"].strip()
+            if "# CLAUDE.md" not in claude_md:
+                raise RuntimeError("Template bundle integrity check failed (ClaudeCode): .claude/CLAUDE.md missing title header")
+            if "## Workflow" not in claude_md:
+                raise RuntimeError("Template bundle integrity check failed (ClaudeCode): .claude/CLAUDE.md missing workflow section")
+
+            start_work = bundle[".claude/commands/start-work.md"].strip()
+            if "## Goal" not in start_work or "## Steps" not in start_work:
+                raise RuntimeError("Template bundle integrity check failed (ClaudeCode): start-work command content incomplete")
+            return
+
+        opencode = self._parse_json_relaxed(bundle["opencode.jsonc"])
+        required_keys = {"$schema", "instructions", "agent", "command", "mcp", "plugin", "provider", "permission"}
+        missing_keys = sorted(k for k in required_keys if k not in opencode)
+        if missing_keys:
+            raise RuntimeError(
+                "Template bundle integrity check failed (OpenCode): opencode.jsonc missing keys: " + ", ".join(missing_keys)
+            )
+
+        if not isinstance(opencode.get("instructions"), list):
+            raise RuntimeError("Template bundle integrity check failed (OpenCode): instructions must be array")
+        if not isinstance(opencode.get("plugin"), list):
+            raise RuntimeError("Template bundle integrity check failed (OpenCode): plugin must be array")
+        if not isinstance(opencode.get("mcp"), dict):
+            raise RuntimeError("Template bundle integrity check failed (OpenCode): mcp must be object")
+
+        agents_md = bundle[".opencode/AGENTS.md"].strip()
+        if "# AGENTS.md" not in agents_md:
+            raise RuntimeError("Template bundle integrity check failed (OpenCode): .opencode/AGENTS.md missing title header")
+
+        start_work = bundle[".opencode/commands/start-work.md"].strip()
+        if "## Goal" not in start_work or "## Steps" not in start_work:
+            raise RuntimeError("Template bundle integrity check failed (OpenCode): start-work command content incomplete")
 
     def _fallback_unified_ops(self, domain: str, knowledge_list: list[dict[str, Any]]) -> str:
         snippets = [
@@ -415,6 +464,7 @@ class TemplateManager:
                 **claude_category_files,
             }
             self._validate_required_files(bundle, "ClaudeCode")
+            self._validate_required_content(bundle, "ClaudeCode")
             return bundle
 
         opencode_agent_catalog = {
@@ -569,6 +619,7 @@ class TemplateManager:
             **opencode_category_files,
         }
         self._validate_required_files(bundle, "OpenCode")
+        self._validate_required_content(bundle, "OpenCode")
         return bundle
 
     async def generate_template_from_knowledge(self, domain: str, knowledge_list: list[dict[str, Any]]) -> str:
