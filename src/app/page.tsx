@@ -1,5 +1,5 @@
 "use client";
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import type { BoardCategory, Domain } from "@/types";
 import { useBoardData } from "@/hooks/useBoardData";
@@ -53,21 +53,8 @@ export default function AiOpsBoard() {
     fetchTemplatePreview,
     downloadTemplate,
   } = useTemplateService();
-  const [latestNews, setLatestNews] = useState<Array<{ title: string; url: string; source: string }>>([]);
-
   // 데이터 로딩 부분은 useBoardData로 이동하여 제거함
   // fetchPostsData 제거
-  
-  React.useEffect(() => {
-    const news = allPosts.slice(0, 3).map((p) => ({
-      title: p.title,
-      url: p.sources[0] || "#",
-      source: p.sourceKind,
-    }));
-    setLatestNews(news);
-  }, [allPosts]);
-
-  // ... (existing logic)
 
   const filteredPosts = useMemo(() => {
     const q = query.trim().toLowerCase();

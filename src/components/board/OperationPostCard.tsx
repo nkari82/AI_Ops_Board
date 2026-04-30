@@ -4,7 +4,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DomainIcon } from "@/components/shared/DomainIcon";
 import { MiniBlock } from "@/components/shared/MiniBlock";
 import { CompareBox } from "@/components/shared/CompareBox";
-import { riskClass, sourceLabel } from "@/lib/boardUtils";
 import { cn } from "@/lib/utils";
 
 function decodeHtmlEntities(value: string): string {
@@ -39,10 +38,10 @@ export function OperationPostCard({ post }: OperationPostCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const originalUrl = useMemo(() => {
-    if (!post?.sources?.length) return null;
+    if (!post.sources?.length) return null;
     const url = post.sources.find((s) => typeof s === "string" && /^https?:\/\//.test(s));
     return url ?? null;
-  }, [post?.sources]);
+  }, [post.sources]);
 
   if (!post) return null;
 

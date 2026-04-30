@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 

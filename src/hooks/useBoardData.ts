@@ -91,12 +91,15 @@ export function useBoardData(options?: { autoFetchKnowledge?: boolean }) {
 
   useEffect(() => {
     mountedRef.current = true;
-    fetchOperationPosts();
-    if (autoFetchKnowledge) {
-      fetchKnowledge();
-    }
+    const timer = setTimeout(() => {
+      void fetchOperationPosts();
+      if (autoFetchKnowledge) {
+        void fetchKnowledge();
+      }
+    }, 0);
 
     return () => {
+      clearTimeout(timer);
       mountedRef.current = false;
       postsAbortRef.current?.abort();
       knowledgeAbortRef.current?.abort();

@@ -99,7 +99,10 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    refreshOpsSnapshot().catch((e) => setStatus(`초기 로드 실패: ${String(e)}`));
+    const timer = setTimeout(() => {
+      void refreshOpsSnapshot().catch((e) => setStatus(`초기 로드 실패: ${String(e)}`));
+    }, 0);
+    return () => clearTimeout(timer);
   }, [refreshOpsSnapshot]);
 
   const handleLlmTest = async () => {
