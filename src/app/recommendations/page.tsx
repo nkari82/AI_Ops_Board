@@ -641,6 +641,10 @@ export default function RecommendationsPage() {
                   {readOnlyMode ? "Read-only" : "Editable"}
                 </div>
               </div>
+              <p className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-800">
+                이 영역은 <span className="font-semibold">.opencode / .claude</span>에 실제로 배치될 운영 파일을 미리 확인하는 리스트입니다.
+                도메인/엔진/장르/언어 조합에 따라 추천 규칙과 스킬 구성이 달라지며, 선택한 항목은 복사하거나 ZIP으로 바로 내려받아 팀 운영 템플릿으로 사용할 수 있습니다.
+              </p>
               <div className="mb-3">
                 <label className="block text-xs text-slate-600">
                   <span className="mb-1 block">파일/산출물 리스트박스</span>
