@@ -72,6 +72,12 @@ class CrawlRequest(BaseModel):
     limit: int = 10
 
 
+class YouTubeSearchRequest(BaseModel):
+    query: str
+    max_results: int = 8
+    pages: int = 2
+
+
 class AnalyzeRequest(BaseModel):
     content: str
     source_url: str

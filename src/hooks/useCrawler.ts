@@ -25,9 +25,10 @@ export function useCrawler(onCrawlComplete?: () => void) {
       ]);
       setCrawlingStatus("작업 완료");
       onCrawlComplete?.();
-    } catch (e) {
-      console.error("Crawl test failed:", e);
-      setCrawlingStatus("실패");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "크롤링 요청 실패";
+      console.error("Crawl test failed:", error);
+      setCrawlingStatus(`실패: ${message}`);
     } finally {
       setCrawling(false);
     }

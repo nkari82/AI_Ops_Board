@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,8 @@ _DEFAULT_MODEL_ROUTING = ["Gemini Flash", "Pollinations mistral", "Groq fallback
 _DEFAULT_WORKFLOW = ["수집 → 분류 → 요약", "카드 검수", "템플릿 생성"]
 
 _FEEDBACK_PATH = Path(__file__).resolve().parents[1] / "data" / "recommendation_feedback.jsonl"
+_FEEDBACK_SCHEMA_VERSION = 1
+_MAX_NOTE_LEN = 500
 
 
 class RecommendationFeedbackRequest(BaseModel):
@@ -73,9 +76,11 @@ def _load_feedback() -> list[dict[str, Any]]:
         if not line:
             continue
         try:
-            rows.append(json.loads(line))
+            payload = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if isinstance(payload, dict):
+            rows.append(payload)
     return rows
 
 
@@ -157,11 +162,13 @@ async def submit_recommendation_feedback(payload: RecommendationFeedbackRequest)
         raise HTTPException(status_code=400, detail="Unsupported domain")
 
     entry = {
+        "schema_version": _FEEDBACK_SCHEMA_VERSION,
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "domain": payload.domain,
         "rating": payload.rating,
-        "note": payload.note.strip(),
-        "chosen_models": payload.chosen_models,
-        "chosen_workflow": payload.chosen_workflow,
+        "note": payload.note.strip()[:_MAX_NOTE_LEN],
+        "chosen_models": _normalize_str_list(payload.chosen_models, limit=10),
+        "chosen_workflow": _normalize_str_list(payload.chosen_workflow, limit=10),
     }
     _append_feedback(entry)
     return {"status": "ok"}

@@ -1,36 +1,88 @@
-import { useCallback, useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KnowledgeCard, OperationPost } from "@/types";
-import { fetchKnowledgeApi, fetchOperationPostsApi } from "@/lib/api";
+import { ApiError, fetchKnowledgeApi, fetchOperationPostsApi } from "@/lib/api";
 
 export function useBoardData() {
   const [allPosts, setAllPosts] = useState<OperationPost[]>([]);
   const [knowledgeCards, setKnowledgeCards] = useState<KnowledgeCard[]>([]);
   const [visibleCount, setVisibleCount] = useState(10);
+  const [loadingPosts, setLoadingPosts] = useState(false);
+  const [loadingKnowledge, setLoadingKnowledge] = useState(false);
+  const [postsError, setPostsError] = useState<string | null>(null);
+  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
+
+  const mountedRef = useRef(true);
+  const postsReqSeqRef = useRef(0);
+  const knowledgeReqSeqRef = useRef(0);
+  const postsAbortRef = useRef<AbortController | null>(null);
+  const knowledgeAbortRef = useRef<AbortController | null>(null);
 
   const fetchOperationPosts = useCallback(async () => {
+    postsAbortRef.current?.abort();
+    const controller = new AbortController();
+    postsAbortRef.current = controller;
+
+    const requestSeq = ++postsReqSeqRef.current;
+    setLoadingPosts(true);
+    setPostsError(null);
+
     try {
-      const data = await fetchOperationPostsApi();
-      const sortedData = [...data].sort((a, b) => 
-        new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+      const data = await fetchOperationPostsApi(controller.signal);
+      if (!mountedRef.current || requestSeq !== postsReqSeqRef.current) return;
+
+      const sortedData = [...data].sort(
+        (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime(),
       );
       setAllPosts(sortedData);
-    } catch (e) {
-      console.error("Posts fetch failed:", e);
+    } catch (error) {
+      if (!mountedRef.current || requestSeq !== postsReqSeqRef.current) return;
+      if (error instanceof ApiError && error.status === 408) return;
+      const message = error instanceof Error ? error.message : "운용 포스트 조회 실패";
+      setPostsError(message);
+      console.error("Posts fetch failed:", error);
+    } finally {
+      if (mountedRef.current && requestSeq === postsReqSeqRef.current) {
+        setLoadingPosts(false);
+      }
     }
   }, []);
 
   const fetchKnowledge = useCallback(async () => {
+    knowledgeAbortRef.current?.abort();
+    const controller = new AbortController();
+    knowledgeAbortRef.current = controller;
+
+    const requestSeq = ++knowledgeReqSeqRef.current;
+    setLoadingKnowledge(true);
+    setKnowledgeError(null);
+
     try {
-      const data = await fetchKnowledgeApi();
+      const data = await fetchKnowledgeApi(controller.signal);
+      if (!mountedRef.current || requestSeq !== knowledgeReqSeqRef.current) return;
       setKnowledgeCards(data);
-    } catch (e) {
-      console.error("Knowledge fetch failed:", e);
+    } catch (error) {
+      if (!mountedRef.current || requestSeq !== knowledgeReqSeqRef.current) return;
+      if (error instanceof ApiError && error.status === 408) return;
+      const message = error instanceof Error ? error.message : "지식 카드 조회 실패";
+      setKnowledgeError(message);
+      console.error("Knowledge fetch failed:", error);
+    } finally {
+      if (mountedRef.current && requestSeq === knowledgeReqSeqRef.current) {
+        setLoadingKnowledge(false);
+      }
     }
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchOperationPosts();
     fetchKnowledge();
+
+    return () => {
+      mountedRef.current = false;
+      postsAbortRef.current?.abort();
+      knowledgeAbortRef.current?.abort();
+    };
   }, [fetchOperationPosts, fetchKnowledge]);
 
   const visiblePosts = useMemo(() => allPosts.slice(0, visibleCount), [allPosts, visibleCount]);
@@ -40,5 +92,16 @@ export function useBoardData() {
     setVisibleCount((prev) => prev + 10);
   };
 
-  return { knowledgeCards, fetchKnowledge, visiblePosts, allPosts, loadMore, hasMore };
+  return {
+    knowledgeCards,
+    fetchKnowledge,
+    visiblePosts,
+    allPosts,
+    loadMore,
+    hasMore,
+    loadingPosts,
+    loadingKnowledge,
+    postsError,
+    knowledgeError,
+  };
 }

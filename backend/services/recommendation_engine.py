@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from typing import Any
+from importlib import import_module
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db_models import CrawledPost
+try:
+    CrawledPost = import_module("backend.db_models").CrawledPost
+except ModuleNotFoundError:
+    CrawledPost = import_module("db_models").CrawledPost
 
 _ALLOWED_DOMAINS = [
     "게임 클라이언트",

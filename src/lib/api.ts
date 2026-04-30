@@ -1,6 +1,70 @@
 import type { KnowledgeCard, OperationPost, OperationPostApi, RecommendedSetting } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8005";
+const DEFAULT_TIMEOUT_MS = 15000;
+
+export class ApiError extends Error {
+  status: number;
+  payload?: unknown;
+
+  constructor(message: string, status: number, payload?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  const signal = init?.signal;
+  if (signal) {
+    signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new ApiError("요청이 취소되었거나 시간 초과되었습니다.", 408);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function parseErrorMessage(response: Response): Promise<{ message: string; payload?: unknown }> {
+  const contentType = response.headers.get("content-type") || "";
+  try {
+    if (contentType.includes("application/json")) {
+      const payload = await response.json();
+      const detail =
+        typeof payload === "object" && payload !== null && "detail" in payload
+          ? (payload as { detail?: unknown }).detail
+          : undefined;
+      const message = typeof detail === "string" ? detail : `요청 실패 (${response.status})`;
+      return { message, payload };
+    }
+
+    const text = await response.text();
+    return { message: text || `요청 실패 (${response.status})` };
+  } catch {
+    return { message: `요청 실패 (${response.status})` };
+  }
+}
+
+async function ensureOk(response: Response, fallbackMessage: string): Promise<Response> {
+  if (response.ok) return response;
+  const parsed = await parseErrorMessage(response);
+  throw new ApiError(parsed.message || fallbackMessage, response.status, parsed.payload);
+}
 
 function mapOperationPost(post: OperationPostApi): OperationPost {
   return {
@@ -29,51 +93,89 @@ function mapOperationPost(post: OperationPostApi): OperationPost {
   };
 }
 
-export async function fetchKnowledgeApi(): Promise<KnowledgeCard[]> {
-  const response = await fetch(`${API_BASE}/api/knowledge`);
+export async function fetchKnowledgeApi(signal?: AbortSignal): Promise<KnowledgeCard[]> {
+  const response = await fetchWithTimeout(`${API_BASE}/api/knowledge`, { signal });
+  await ensureOk(response, "지식 카드 조회 실패");
   return response.json();
 }
 
 export async function generateOpsTemplateApi(domain: string): Promise<{ template: string }> {
-  const response = await fetch(`${API_BASE}/api/templates/generate?domain=${domain}`, {
+  const response = await fetchWithTimeout(`${API_BASE}/api/templates/generate?domain=${domain}`, {
     method: "POST",
   });
+  await ensureOk(response, "템플릿 생성 실패");
   return response.json();
 }
 
 export async function downloadTemplateApi(domain: string): Promise<Blob> {
-  const response = await fetch(`${API_BASE}/api/ops-templates/generate-zip?domain=${encodeURIComponent(domain)}`, {
+  const response = await fetchWithTimeout(`${API_BASE}/api/ops-templates/generate-zip?domain=${encodeURIComponent(domain)}`, {
     method: "POST",
   });
-  if (!response.ok) throw new Error("템플릿 ZIP 생성 실패");
+  await ensureOk(response, "템플릿 ZIP 생성 실패");
   return response.blob();
 }
 
 export async function crawlRedditApi(subreddit: string, limit: number): Promise<Response> {
-  return fetch(`${API_BASE}/api/crawl/reddit`, {
+  const response = await fetchWithTimeout(`${API_BASE}/api/crawl/reddit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ subreddit, limit }),
   });
+  return ensureOk(response, "Reddit 크롤 요청 실패");
 }
 
 export async function crawlGithubApi(limit: number): Promise<Response> {
-  return fetch(`${API_BASE}/api/crawl/github?limit=${limit}`, { method: "POST" });
+  const response = await fetchWithTimeout(`${API_BASE}/api/crawl/github?limit=${limit}`, { method: "POST" });
+  return ensureOk(response, "GitHub 크롤 요청 실패");
 }
 
 export async function crawlHnApi(limit: number): Promise<Response> {
-  return fetch(`${API_BASE}/api/crawl/hn?limit=${limit}`, { method: "POST" });
+  const response = await fetchWithTimeout(`${API_BASE}/api/crawl/hn?limit=${limit}`, { method: "POST" });
+  return ensureOk(response, "HN 크롤 요청 실패");
 }
 
-export async function fetchOperationPostsApi(): Promise<OperationPost[]> {
-  const response = await fetch(`${API_BASE}/api/operation-posts`);
+export async function crawlYoutubeApi(url: string): Promise<Response> {
+  const response = await fetchWithTimeout(`${API_BASE}/api/crawl/youtube`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  return ensureOk(response, "YouTube URL 크롤 요청 실패");
+}
+
+export async function crawlYoutubeSearchApi(payload: {
+  query: string;
+  max_results?: number;
+  pages?: number;
+}): Promise<Response> {
+  const response = await fetchWithTimeout(`${API_BASE}/api/crawl/youtube/search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return ensureOk(response, "YouTube 검색 크롤 요청 실패");
+}
+
+export async function fetchCrawlTaskStatusApi(taskId: string): Promise<{
+  task_id: string;
+  status: string;
+  result: unknown;
+}> {
+  const response = await fetchWithTimeout(`${API_BASE}/api/crawl/status/${encodeURIComponent(taskId)}`);
+  await ensureOk(response, "크롤 상태 조회 실패");
+  return response.json();
+}
+
+export async function fetchOperationPostsApi(signal?: AbortSignal): Promise<OperationPost[]> {
+  const response = await fetchWithTimeout(`${API_BASE}/api/operation-posts`, { signal });
+  await ensureOk(response, "운용 포스트 조회 실패");
   const data: OperationPostApi[] = await response.json();
   return data.map(mapOperationPost);
 }
 
 export async function fetchRecommendedSettingsApi(): Promise<RecommendedSetting[]> {
-  const response = await fetch(`${API_BASE}/api/recommendations`);
-  if (!response.ok) throw new Error("추천 설정 조회 실패");
+  const response = await fetchWithTimeout(`${API_BASE}/api/recommendations`);
+  await ensureOk(response, "추천 설정 조회 실패");
   return response.json();
 }
 
@@ -84,17 +186,72 @@ export async function sendRecommendationFeedbackApi(payload: {
   chosen_models?: string[];
   chosen_workflow?: string[];
 }): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/recommendations/feedback`, {
+  const response = await fetchWithTimeout(`${API_BASE}/api/recommendations/feedback`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error("추천 피드백 저장 실패");
+  await ensureOk(response, "추천 피드백 저장 실패");
 }
 
 export async function getCloneInstructionsApi(domain: string): Promise<{ domain: string; script: string; hint: string }> {
-  const response = await fetch(`${API_BASE}/api/ops-templates/clone-instructions?domain=${encodeURIComponent(domain)}`);
-  if (!response.ok) throw new Error("클론 안내 생성 실패");
+  const response = await fetchWithTimeout(`${API_BASE}/api/ops-templates/clone-instructions?domain=${encodeURIComponent(domain)}`);
+  await ensureOk(response, "클론 안내 생성 실패");
+  return response.json();
+}
+
+export async function fetchAdminMetricsApi(): Promise<{
+  quality: {
+    totalPosts?: number;
+    pollutedPosts?: number;
+    qualityScore?: number;
+  };
+  errors: {
+    total?: number;
+    byCategory?: Record<string, number>;
+  };
+  youtubeSearch?: {
+    requested?: number;
+    deduplicated?: number;
+    queued?: number;
+    completed?: number;
+    failed?: number;
+    rateLimited?: number;
+    activeCount?: number;
+    lastQuery?: string | null;
+    lastTaskId?: string | null;
+    lastStatus?: string | null;
+    updatedAt?: string | null;
+    recentTaskSummaries?: Array<{
+      taskId?: string;
+      query?: string;
+      status?: string;
+      resultCount?: number | null;
+      completedAt?: string;
+    }>;
+  };
+  rssQuality?: {
+    entryBlocksTotal?: number;
+    extractedLinksTotal?: number;
+    acceptedLinksTotal?: number;
+    skippedLinksTotal?: number;
+    acceptanceRate?: number | null;
+    skippedByReason?: Record<string, number>;
+  };
+}> {
+  const response = await fetchWithTimeout(`${API_BASE}/api/admin/metrics`);
+  await ensureOk(response, "운영 지표 조회 실패");
+  return response.json();
+}
+
+export async function fetchHealthDetailedApi(): Promise<{
+  status: string;
+  timestamp?: string;
+  sloBreached?: boolean;
+  checks?: Record<string, unknown>;
+}> {
+  const response = await fetchWithTimeout(`${API_BASE}/api/health/detailed`);
+  await ensureOk(response, "헬스 상태 조회 실패");
   return response.json();
 }
 

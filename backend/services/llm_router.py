@@ -1,6 +1,11 @@
 import aiohttp
+import logging
+import time
 from typing import List
 from config import settings
+from services.error_tracker import error_tracker
+
+logger = logging.getLogger(__name__)
 
 
 def _join_url(base: str, path: str) -> str:
@@ -25,23 +30,110 @@ class LLMRouter:
             "pollinations": self._call_pollinations,
             "gemini": self._call_gemini,
         }
-    
+
+    def _parse_failover_order(self) -> list[str]:
+        raw = (getattr(settings, "LLM_FAILOVER_ORDER", "") or "").strip()
+        if not raw:
+            return ["gemini", "pollinations", "groq", "openrouter", "huggingface", "vllm"]
+        ordered = [item.strip() for item in raw.split(",") if item.strip()]
+        return [item for item in ordered if item in self.providers]
+
+    def _parse_failover_statuses(self) -> set[int]:
+        raw = (getattr(settings, "LLM_FAILOVER_ON_STATUS", "") or "").strip()
+        statuses: set[int] = set()
+        for token in raw.split(","):
+            token = token.strip()
+            if not token:
+                continue
+            try:
+                statuses.add(int(token))
+            except ValueError:
+                continue
+        return statuses or {429, 503, 504}
+
+    def _is_failover_candidate(self, err: LLMRouterError) -> bool:
+        statuses = self._parse_failover_statuses()
+        # Quota-aware 기본 + 인증 실패(401/403)도 fallback 허용
+        if err.status_code in statuses or err.status_code in {401, 403}:
+            return True
+        msg = (err.message or "").lower()
+        fallback_markers = [
+            "quota",
+            "resource_exhausted",
+            "rate limit",
+            "too many requests",
+            "api 키가 설정되지 않았습니다",
+            "토큰이 설정되지 않았습니다",
+            "api 오류: 401",
+            "api 오류: 403",
+            "unauthorized",
+            "forbidden",
+        ]
+        return any(marker in msg for marker in fallback_markers)
+
+    async def _call_provider(self, provider: str, prompt: str, max_tokens: int, temperature: float) -> str:
+        started = time.perf_counter()
+        try:
+            result = await self.providers[provider](prompt, max_tokens, temperature)
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+            logger.info("LLM call success provider=%s elapsed_ms=%s prompt_len=%s", provider, elapsed_ms, len(prompt or ""))
+            return result
+        except LLMRouterError as e:
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+            logger.error("LLM call failed provider=%s status=%s elapsed_ms=%s msg=%s", e.provider, e.status_code, elapsed_ms, e.message)
+            error_tracker.log_error(
+                "LLM_FAILURE",
+                e.message,
+                details={
+                    "provider": e.provider,
+                    "status_code": e.status_code,
+                    "elapsed_ms": elapsed_ms,
+                    "prompt_len": len(prompt or ""),
+                },
+            )
+            raise
+        except Exception as e:
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+            logger.exception("LLM unexpected failure provider=%s elapsed_ms=%s", provider, elapsed_ms)
+            error_tracker.log_error(
+                "LLM_FAILURE",
+                str(e),
+                details={"provider": provider, "elapsed_ms": elapsed_ms, "prompt_len": len(prompt or "")},
+            )
+            raise LLMRouterError(provider=provider, message=f"LLM 생성 실패: {str(e)}") from e
+
     async def generate(
-        self, 
-        prompt: str, 
+        self,
+        prompt: str,
         provider: str = "huggingface",
         max_tokens: int = 500,
         temperature: float = 0.7
     ) -> str:
-        if provider not in self.providers:
-            provider = "huggingface"
+        preferred = provider if provider in self.providers else "huggingface"
+        failover_enabled = bool(getattr(settings, "LLM_FAILOVER_ENABLED", True))
 
-        try:
-            return await self.providers[provider](prompt, max_tokens, temperature)
-        except LLMRouterError:
-            raise
-        except Exception as e:
-            raise LLMRouterError(provider=provider, message=f"LLM 생성 실패: {str(e)}") from e
+        if not failover_enabled:
+            return await self._call_provider(preferred, prompt, max_tokens, temperature)
+
+        order = self._parse_failover_order()
+        attempts: list[str] = [preferred]
+        attempts.extend([p for p in order if p != preferred])
+
+        last_error: LLMRouterError | None = None
+        for idx, candidate in enumerate(attempts, start=1):
+            try:
+                if idx > 1:
+                    logger.warning("LLM failover attempt=%s provider=%s", idx, candidate)
+                return await self._call_provider(candidate, prompt, max_tokens, temperature)
+            except LLMRouterError as err:
+                last_error = err
+                if not self._is_failover_candidate(err):
+                    raise
+                continue
+
+        if last_error:
+            raise last_error
+        raise LLMRouterError(provider=preferred, message="LLM 생성 실패: provider chain exhausted")
     
     async def _call_huggingface(self, prompt: str, max_tokens: int, temperature: float) -> str:
         if not settings.HUGGINGFACE_TOKEN:

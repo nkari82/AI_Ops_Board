@@ -1,0 +1,175 @@
+AI OPS BOARD: WAVE 2 QUICK REFERENCE
+Frontend UX & Testability Gaps
+
+DOCUMENTATION PACKAGE
+======================
+
+1. WAVE2_EXECUTIVE_SUMMARY.md (8.8 KB)
+   For: Stakeholders, tech leads, sprint planning
+   Contains: Overview, execution plan, success criteria
+   Read time: 10-15 min
+
+2. UX_TESTABILITY_GAPS_WAVE.md (13.3 KB)
+   For: Developers, QA, product managers
+   Contains: 10 detailed tasks with acceptance criteria
+   Read time: 20-30 min
+
+3. WAVE2_IMPLEMENTATION_GUIDE.md (19.6 KB)
+   For: Developers implementing tasks
+   Contains: Code stubs, test templates, examples
+   Read time: 30-45 min (reference)
+
+4. WAVE2_README.md (This index)
+   For: Quick navigation and overview
+   Contains: Document index, quick start, metrics
+   Read time: 5-10 min
+
+
+TOP 10 TASKS (Priority Order)
+==============================
+
+CRITICAL (Must Fix)
+  1. API Error Handling & User Feedback ..................... 5-6h
+  2. Search Input Debounce & Real-time Validation ........... 3-4h
+  3. Category/Domain Filter Persistence & URL State ......... 4-5h
+  4. Post Detail Modal/Drawer with Keyboard Navigation ...... 6-8h
+
+HIGH-IMPACT (Should Fix)
+  5. Post Card Accessibility (WCAG 2.1 AA) .................. 4-5h
+  6. Filter Combination Validation & Empty State UX ......... 3-4h
+  7. Recommendations Page Loading States & Error Recovery ... 5-6h
+
+MEDIUM-PRIORITY (Nice to Have)
+  8. "Load More" Pagination UX & Infinite Scroll ............ 4-5h
+  9. Domain/Category Filter Responsiveness & Mobile UX ...... 4-5h
+ 10. Post Card Content Truncation & "Read More" UX .......... 3-4h
+
+TOTAL EFFORT: 42-51 hours (1.5-2 weeks for 1 developer)
+
+
+EXECUTION TIMELINE
+==================
+
+WEEK 1: Foundation & Critical Path (20-22 hours)
+  Day 1-2: Task 1 - API Error Handling ...................... 5-6h
+  Day 2-3: Task 3 - Filter URL State ........................ 4-5h
+  Day 3:   Task 2 - Search Debounce ......................... 3-4h
+  Day 4:   Task 5 - Accessibility Audit ..................... 4-5h
+
+WEEK 2: Features & Polish (22-29 hours)
+  Day 5-6: Task 4 - Post Detail Modal ....................... 6-8h
+  Day 6-7: Task 6 + 7 - Empty State & Recommendations ....... 8-10h
+  Day 8:   Task 8 + 9 - Pagination & Mobile UX ............. 8-11h
+
+
+TARGET FILES
+============
+
+NEW FILES (7):
+  - src/lib/hooks/useDebounce.ts
+  - src/lib/filterUtils.ts
+  - src/components/board/PostDetailModal.tsx
+  - src/components/board/EmptyStateCard.tsx
+  - src/components/shared/ErrorBanner.tsx
+  - e2e/board.spec.ts
+  - src/components/board/OperationPostCard.a11y.test.tsx
+
+MODIFIED FILES (8):
+  - src/app/page.tsx
+  - src/app/recommendations/page.tsx
+  - src/components/board/BoardFilters.tsx
+  - src/components/board/OperationPostCard.tsx
+  - src/lib/api.ts
+  - src/hooks/useBoardData.ts
+  - src/lib/boardUtils.ts
+  - src/lib/constants.ts (reference only)
+
+
+SUCCESS CRITERIA
+================
+
+FUNCTIONAL:
+  - All API calls have error handling with user-friendly messages
+  - Filters persist in URL and survive page reload
+  - Search debounces at 300ms with no jank
+  - Post detail modal opens/closes with keyboard shortcuts
+  - Empty state shows helpful guidance
+  - Recommendations page loads gracefully with partial failures
+
+ACCESSIBILITY:
+  - WCAG AA compliance (axe-core clean)
+  - Screen reader navigation works
+  - Keyboard-only navigation works
+  - Color contrast >= 4.5:1 for text
+
+PERFORMANCE:
+  - No jank on 1000+ posts (60fps)
+  - Search debounce completes in <300ms
+  - Modal opens in <100ms
+  - Page load time <2s (with slow network)
+
+TESTING:
+  - Unit test coverage >80% for new code
+  - E2E tests cover all critical user flows
+  - Accessibility audit passes
+  - Manual QA sign-off on mobile + desktop
+
+
+QUICK START
+===========
+
+FOR PRODUCT MANAGERS / TECH LEADS:
+  1. Read WAVE2_EXECUTIVE_SUMMARY.md (10 min)
+  2. Review task priority table (5 min)
+  3. Confirm execution order and resources
+
+FOR DEVELOPERS:
+  1. Read WAVE2_EXECUTIVE_SUMMARY.md (10 min)
+  2. Review assigned task(s) in UX_TESTABILITY_GAPS_WAVE.md (5 min)
+  3. Use code stubs from WAVE2_IMPLEMENTATION_GUIDE.md (reference)
+  4. Follow acceptance criteria and validation methods
+
+FOR QA ENGINEERS:
+  1. Read UX_TESTABILITY_GAPS_WAVE.md (20 min)
+  2. Review validation methods for each task
+  3. Use E2E test template from WAVE2_IMPLEMENTATION_GUIDE.md
+  4. Create test cases based on acceptance criteria
+
+
+METRICS
+=======
+
+Total Tasks:                    10
+Total Estimated Effort:         42-51 hours
+Recommended Sprint Duration:    1-2 weeks
+Developers Required:            1
+Critical Tasks:                 4
+High-Impact Tasks:              3
+Medium-Priority Tasks:          3
+New Files to Create:            7
+Files to Modify:                8
+Backend Changes Required:       0
+Database Changes Required:      0
+
+
+RELATED DOCUMENTS
+=================
+
+- system_architecture.md - Overall system design
+- project_summary.md - Project overview
+- AGENTS.md - Development guidelines
+- CLAUDE.md - Claude-specific instructions
+
+
+SUPPORT
+=======
+
+For questions about:
+  - Task details: See UX_TESTABILITY_GAPS_WAVE.md
+  - Implementation: See WAVE2_IMPLEMENTATION_GUIDE.md
+  - Execution plan: See WAVE2_EXECUTIVE_SUMMARY.md
+  - Codebase: See system_architecture.md
+
+
+Status: READY FOR SPRINT PLANNING
+Generated: 2026-04-30

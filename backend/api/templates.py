@@ -43,9 +43,6 @@ async def generate_template_zip(domain: str, db: AsyncSession = Depends(get_db))
     result = await db.execute(query)
     posts = result.scalars().all()
     
-    if not posts:
-        raise HTTPException(status_code=404, detail="No knowledge found")
-    
     knowledge_list = [
         {
             "title": p.title,
@@ -53,7 +50,11 @@ async def generate_template_zip(domain: str, db: AsyncSession = Depends(get_db))
         }
         for p in posts
     ]
-    
+
+    # 데이터가 없어도 도메인 기본 번들을 생성해 404 대신 fallback ZIP을 제공
+    if not knowledge_list:
+        knowledge_list = [{"title": domain, "summary": "도메인 기본 운영 템플릿"}]
+
     # 2. 템플릿 번들 생성 (unified-ops + README + clone script)
     manager = TemplateManager()
     try:

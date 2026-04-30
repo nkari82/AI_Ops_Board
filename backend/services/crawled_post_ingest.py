@@ -116,6 +116,7 @@ class CrawledPostIngestService:
                     "created_utc": raw.get("created_utc"),
                     "num_comments": raw.get("num_comments"),
                     "source_mode": source_marker,
+                    "rss_quality": raw.get("rss_quality") if isinstance(raw.get("rss_quality"), dict) else None,
                 },
             )
         return None
