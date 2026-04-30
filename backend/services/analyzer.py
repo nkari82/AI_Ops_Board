@@ -262,7 +262,7 @@ Text:
 
     def _extract_json_field(self, raw_text: str, field: str) -> str | None:
         text = (raw_text or "").strip()
-        if not text:
+        if not text or self._looks_like_llm_failure(text):
             return None
         try:
             start = text.find("{")
@@ -277,7 +277,7 @@ Text:
 
     def _extract_json_object(self, raw_text: str) -> dict[str, Any] | None:
         text = (raw_text or "").strip()
-        if not text:
+        if not text or self._looks_like_llm_failure(text):
             return None
         try:
             start = text.find("{")

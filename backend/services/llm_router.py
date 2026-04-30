@@ -2,8 +2,13 @@ import aiohttp
 import logging
 import time
 from typing import List
-from config import settings
-from services.error_tracker import error_tracker
+
+try:
+    from backend.config import settings
+    from backend.services.error_tracker import error_tracker
+except ModuleNotFoundError:
+    from config import settings
+    from services.error_tracker import error_tracker
 
 logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=30, connect=10, sock_read=25)

@@ -18,10 +18,20 @@ except ModuleNotFoundError:
 try:
     from backend.services.llm_router import LLMRouter
     from backend.services.recommendation_baselines import get_domain_baseline, merge_unique
+    from backend.services.recommendation_quality import (
+        apply_sparse_data_score_guard,
+        compute_quality_confidence,
+        quality_band_from_confidence,
+    )
     from backend.services.recommendation_runtime import load_cached_settings, get_latest_post_updated_at, save_cached_settings
 except ModuleNotFoundError:
     from services.llm_router import LLMRouter
     from services.recommendation_baselines import get_domain_baseline, merge_unique
+    from services.recommendation_quality import (
+        apply_sparse_data_score_guard,
+        compute_quality_confidence,
+        quality_band_from_confidence,
+    )
     from services.recommendation_runtime import load_cached_settings, get_latest_post_updated_at, save_cached_settings
 
 try:
@@ -221,9 +231,16 @@ class RecommendationEngine:
             if feedback_rows:
                 avg_feedback = sum(int(x.get("rating", 0)) for x in feedback_rows) / max(len(feedback_rows), 1)
 
-            base_score = min(100, 40 + len(domain_posts) * 3)
+            evidence_count = len(domain_posts)
+            feedback_count = len(feedback_rows)
+
+            base_score = min(100, 40 + evidence_count * 3)
             feedback_bonus = int((avg_feedback - 3.0) * 8) if feedback_rows else 0
             score = max(0, min(100, base_score + feedback_bonus))
+            score = apply_sparse_data_score_guard(score, evidence_count)
+
+            quality_confidence = compute_quality_confidence(evidence_count, feedback_count)
+            quality_band = quality_band_from_confidence(quality_confidence)
 
             baseline = get_domain_baseline(domain)
             baseline_version = int(baseline.get("baselineVersion") or 1)
@@ -241,7 +258,7 @@ class RecommendationEngine:
             signature = self._compute_signature(
                 domain=domain,
                 baseline_version=baseline_version,
-                evidence_count=len(domain_posts),
+                evidence_count=evidence_count,
                 evidence_latest_updated_at=evidence_latest_iso,
                 top_tech=top_tech,
                 top_categories=top_categories,
@@ -261,12 +278,14 @@ class RecommendationEngine:
                     "mcp": merged_mcp,
                     "rules": merged_rules,
                     "reason": (
-                        f"{domain} 도메인 포스트 {len(domain_posts)}건 + 피드백 {feedback_count}건 기반 추천"
+                        f"{domain} 도메인 포스트 {evidence_count}건 + 피드백 {feedback_count}건 기반 추천"
                         if domain_posts or feedback_rows
                         else f"{domain} 데이터 부족으로 기본 추천 사용"
                     ),
-                    "evidenceCount": len(domain_posts),
+                    "evidenceCount": evidence_count,
                     "feedbackCount": feedback_count,
+                    "qualityConfidence": quality_confidence,
+                    "qualityBand": quality_band,
                     "evidenceLatestUpdatedAt": evidence_latest_iso,
                     "signature": signature,
                     "subagentCandidates": dynamic_subagents,
@@ -343,6 +362,9 @@ class RecommendationEngine:
             else:
                 refined_settings.append(item)
 
+        # Re-check marker AFTER refinement to detect if posts arrived during LLM processing.
+        # If marker changed, skip cache save to avoid storing stale data.
+        # This also prevents stale signatures (computed at line 241) from being cached.
         latest_marker = await get_latest_post_updated_at(db)
         if latest_marker == marker_before_save:
             save_cached_settings(settings=refined_settings, generated_by=trigger, latest_post_updated_at=latest_marker)

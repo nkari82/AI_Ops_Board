@@ -1,5 +1,7 @@
 from importlib import import_module
 import json
+import re
+from collections import Counter
 from typing import Any
 
 from config import settings
@@ -134,6 +136,70 @@ class TemplateManager:
         mcp = [str(x).strip() for x in recommendation.get("mcp", []) if str(x).strip()]
         rules = [str(x).strip() for x in recommendation.get("rules", []) if str(x).strip()]
         reason = str(recommendation.get("reason") or "").strip()
+
+        title_tokens: list[str] = []
+        category_counter: Counter[str] = Counter()
+        source_counter: Counter[str] = Counter()
+        crawled_tech: list[str] = []
+        source_urls: list[str] = []
+
+        for item in knowledge_list:
+            title = str(item.get("title") or "")
+            category = str(item.get("category") or "").strip()
+            source_type = str(item.get("sourceType") or "").strip()
+            source_url = str(item.get("sourceUrl") or "").strip()
+            tech_stack = item.get("techStack")
+
+            for token in re.findall(r"[A-Za-z][A-Za-z0-9_+-]{2,}|[가-힣]{2,}", title):
+                lower = token.lower()
+                if lower in {"the", "and", "for", "with", "from", "this", "that", "운영", "가이드"}:
+                    continue
+                title_tokens.append(lower)
+
+            if category:
+                category_counter[category] += 1
+            if source_type:
+                source_counter[source_type] += 1
+            if source_url and source_url not in source_urls:
+                source_urls.append(source_url)
+
+            if isinstance(tech_stack, list):
+                for tech in tech_stack:
+                    text = str(tech).strip()
+                    if text:
+                        crawled_tech.append(text)
+
+        top_topics = [name for name, _ in Counter(title_tokens).most_common(8)]
+        top_categories = [name for name, _ in category_counter.most_common(6)]
+        top_sources = [name for name, _ in source_counter.most_common(6)]
+        top_crawled_tech = [name for name, _ in Counter(crawled_tech).most_common(12)]
+
+        if not model_routing:
+            model_routing = [
+                "Gemini Flash",
+                "OpenRouter fallback",
+            ]
+        if not workflow:
+            workflow = [
+                "crawl → normalize",
+                "analyze → categorize",
+                "recommendation refresh",
+                "template export",
+                "quality gates",
+            ]
+        if not mcp:
+            mcp = top_crawled_tech[:8]
+        if not rules:
+            rules = [
+                "크롤링 근거가 약한 경우 보수적 추천을 사용",
+                "실패 문자열/에러 응답은 저장 전에 제거",
+                "품질 게이트 통과 후만 배포",
+            ]
+        if not reason:
+            reason = (
+                f"최근 크롤링 데이터 {len(knowledge_list)}건 기반 추천"
+                + (f" / 주요 카테고리: {', '.join(top_categories[:3])}" if top_categories else "")
+            )
         harness_type = str(recommendation.get("harnessType") or "OpenCode").strip() or "OpenCode"
         subagent_candidates = [str(x).strip() for x in recommendation.get("subagentCandidates", []) if str(x).strip()]
         official_categories_payload = recommendation.get("officialCategories") if isinstance(recommendation.get("officialCategories"), dict) else {}
@@ -199,7 +265,7 @@ class TemplateManager:
                 "description: official category aligned skill\n"
                 "---\n\n"
                 f"# OpenCode Category: {item}\n\n"
-                "- source: https://opencode.ai/docs/config\n"
+                "- source: https://opencode.ai/docs/configuration\n"
                 f"- domain: {domain}\n"
                 "- objective: .opencode 운영 셋팅 카테고리 표준화\n"
             )
@@ -213,7 +279,7 @@ class TemplateManager:
                 "description: official category aligned skill\n"
                 "---\n\n"
                 f"# Claude Category: {item}\n\n"
-                "- source: https://code.claude.com/docs/en/configuration\n"
+                "- source: https://docs.anthropic.com/en/docs/claude-code\n"
                 f"- domain: {domain}\n"
                 "- objective: .claude 운영 셋팅 카테고리 표준화\n"
             )
@@ -255,6 +321,19 @@ class TemplateManager:
                 for path, content in dynamic_skill_files.items()
             }
 
+            claude_start_work = (
+                f"# /start-work ({domain})\n\n"
+                "## Goal\n- 추천 셋팅 기반 작업 시작\n\n"
+                "## Steps\n"
+                + ("\n".join([f"- {step}" for step in workflow[:10]]) if workflow else "- 기본 워크플로우 사용")
+                + "\n"
+            )
+            claude_review_work = (
+                f"# /review-work ({domain})\n\n"
+                "## Gate\n- build/smoke 통과 확인\n"
+                "- 규칙 위반(as any, ts-ignore) 점검\n"
+            )
+
             return {
                 ".claude/README.md": readme,
                 ".claude/CLAUDE.md": claude_md,
@@ -262,28 +341,118 @@ class TemplateManager:
                 ".claude/unified-ops.md": unified_ops,
                 ".claude/Rule.md": rule_md,
                 ".claude/clone.sh": clone_script,
+                ".claude/commands/start-work.md": claude_start_work,
+                ".claude/commands/review-work.md": claude_review_work,
                 **claude_dynamic_agents,
                 **claude_dynamic_skills,
                 **claude_category_files,
             }
 
+        opencode_agent_catalog = {
+            "planner": {
+                "description": "요구사항 분석/작업 분해/리스크 식별",
+                "when": ["new feature", "architecture change", "ambiguous request"],
+                "output": ["plan", "risk checklist", "verification strategy"],
+            },
+            "implementer": {
+                "description": "코드/설정 수정과 회귀 수정 실행",
+                "when": ["implementation", "bug fix", "refactor"],
+                "output": ["minimal diff", "updated files", "validation logs"],
+            },
+            "reviewer": {
+                "description": "품질게이트/보안/회귀 검증",
+                "when": ["before merge", "after large patch"],
+                "output": ["gate report", "risk notes", "follow-up todo"],
+            },
+        }
+
+        opencode_mcp_servers = {
+            "filesystem": {
+                "enabled": True,
+                "purpose": "로컬 파일 읽기/쓰기",
+                "required": True,
+            },
+            "github": {
+                "enabled": True,
+                "purpose": "PR/이슈/리뷰 자동화",
+                "required": False,
+            },
+            "playwright": {
+                "enabled": True,
+                "purpose": "브라우저 시나리오 검증",
+                "required": False,
+            },
+        }
+
+        implementer_prompt = (
+            f"domain={domain}; reason={reason}; "
+            f"top_topics={', '.join(top_topics[:5])}; "
+            f"top_categories={', '.join(top_categories[:5])}; "
+            f"top_sources={', '.join(top_sources[:5])}"
+        )
+
         opencode_config = json.dumps(
             {
                 "$schema": "https://opencode.ai/config.json",
+                "model": model_routing[0] if model_routing else "anthropic/claude-sonnet-4-5",
+                "small_model": "openai/gpt-4.1-mini",
+                "default_agent": "implementer",
+                "instructions": [
+                    ".opencode/AGENTS.md",
+                    ".opencode/Rule.md",
+                    ".opencode/unified-ops.md",
+                ],
                 "agent": {
-                    "build": {
-                        "description": f"{domain} recommendation operator",
-                    }
+                    "planner": {
+                        "description": opencode_agent_catalog["planner"]["description"],
+                        "mode": "subagent",
+                        "prompt": f"도메인={domain}; 주요주제={', '.join(top_topics[:5])}",
+                    },
+                    "implementer": {
+                        "description": opencode_agent_catalog["implementer"]["description"],
+                        "mode": "primary",
+                        "prompt": implementer_prompt,
+                    },
+                    "reviewer": {
+                        "description": opencode_agent_catalog["reviewer"]["description"],
+                        "mode": "subagent",
+                        "prompt": "lint/build/smoke/pytest 게이트 통과 여부를 검증",
+                    },
                 },
                 "command": {
                     "start-work": {
                         "description": "추천 셋팅 기반 작업 시작",
-                        "template": "Run start-work checklist"
+                        "template": "Read {file:.opencode/commands/start-work.md} and execute checklist",
+                        "agent": "implementer",
                     },
                     "review-work": {
                         "description": "품질 게이트 점검",
-                        "template": "Run review-work checklist"
-                    }
+                        "template": "Read {file:.opencode/commands/review-work.md} and verify quality gates",
+                        "agent": "reviewer",
+                    },
+                },
+                "mcp": {
+                    "filesystem": {
+                        "type": "local",
+                        "enabled": True,
+                        "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "."],
+                    },
+                    "github": {
+                        "type": "local",
+                        "enabled": True,
+                        "command": ["npx", "-y", "@modelcontextprotocol/server-github"],
+                        "environment": {"GITHUB_TOKEN": "${GITHUB_TOKEN}"},
+                    },
+                },
+                "plugin": mcp[:16],
+                "permission": {
+                    "edit": "allow",
+                    "bash": "ask",
+                    "webfetch": "ask",
+                },
+                "provider": {
+                    "openai": {"disabled": False},
+                    "anthropic": {"disabled": False},
                 },
             },
             ensure_ascii=False,
@@ -323,7 +492,7 @@ class TemplateManager:
             ".opencode/Rule.md": rule_md,
             ".opencode/unified-ops.md": unified_ops,
             ".opencode/clone.sh": clone_script,
-            "opencode.json": opencode_config,
+            "opencode.jsonc": opencode_config,
             ".opencode/commands/start-work.md": opencode_start_work,
             ".opencode/commands/review-work.md": opencode_review_work,
             **opencode_dynamic_agents,

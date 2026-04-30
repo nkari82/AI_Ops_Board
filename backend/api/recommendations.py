@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -22,11 +23,23 @@ try:
     from backend.db import get_db
     from backend.db_models import CrawledPost
     from backend.services.recommendation_engine import RecommendationEngine
+    from backend.services.recommendation_quality import (
+        apply_sparse_data_score_guard,
+        cap_combo_boost,
+        compute_quality_confidence,
+        quality_band_from_confidence,
+    )
     from backend.services.recommendation_runtime import get_latest_post_updated_at, is_cache_fresh, load_cached_settings
 except ModuleNotFoundError:
     from db import get_db
     from db_models import CrawledPost
     from services.recommendation_engine import RecommendationEngine
+    from services.recommendation_quality import (
+        apply_sparse_data_score_guard,
+        cap_combo_boost,
+        compute_quality_confidence,
+        quality_band_from_confidence,
+    )
     from services.recommendation_runtime import get_latest_post_updated_at, is_cache_fresh, load_cached_settings
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
@@ -186,17 +199,55 @@ def _load_feedback() -> list[dict[str, Any]]:
 
 
 def _append_feedback(entry: dict[str, Any]) -> None:
+    """Append feedback entry to JSONL file with atomic write protection.
+    
+    Uses atomic write-then-rename pattern to prevent concurrent write corruption.
+    Validates rating before write to prevent data pollution.
+    """
     _FEEDBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Validate rating before write
+    rating = entry.get("rating")
+    if not isinstance(rating, int) or rating < 1 or rating > 5:
+        raise ValueError(f"Invalid rating: {rating}. Must be integer 1-5.")
+    
+    tmp_path: Path | None = None
     with _FEEDBACK_WRITE_LOCK:
-        with _FEEDBACK_PATH.open("a", encoding="utf-8") as f:
-            if fcntl is not None and os.name != "nt":
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            try:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-                f.flush()
-            finally:
-                if fcntl is not None and os.name != "nt":
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        try:
+            # Read existing content
+            existing_content = ""
+            if _FEEDBACK_PATH.exists():
+                try:
+                    existing_content = _FEEDBACK_PATH.read_text(encoding="utf-8")
+                except (IOError, OSError):
+                    # If read fails, start fresh (better than corrupting)
+                    existing_content = ""
+            
+            # Write to temp file first (atomic operation)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=_FEEDBACK_PATH.parent,
+                delete=False,
+                encoding="utf-8",
+                suffix=".tmp"
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                # Write existing content + new entry
+                tmp.write(existing_content)
+                tmp.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                tmp.flush()
+                os.fsync(tmp.fileno())  # Force OS-level sync
+            
+            # Atomic rename (OS-level atomic on most systems)
+            tmp_path.replace(_FEEDBACK_PATH)
+        except Exception as e:
+            # Clean up temp file if it exists
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise RuntimeError(f"Failed to append feedback: {e}") from e
 
 
 @router.get("")
@@ -271,24 +322,33 @@ async def get_recommendations(
             if row_models or row_workflow:
                 break
 
-        base_score = min(100, 40 + len(domain_posts) * 3)
+        evidence_count = len(domain_posts)
+        feedback_count = len(feedback)
+
+        base_score = min(100, 40 + evidence_count * 3)
         feedback_bonus = int((avg_feedback - 3.0) * 8) if feedback else 0
         score = max(0, min(100, base_score + feedback_bonus))
 
+        combo_boost = 0
         if domain in {"게임 클라이언트", "Unity", "Unreal"}:
             if normalized_client_engine:
                 if normalized_client_engine == "유니티" and domain == "Unity":
-                    score = min(100, score + 4)
+                    combo_boost += 4
                 elif normalized_client_engine == "언리얼" and domain == "Unreal":
-                    score = min(100, score + 4)
+                    combo_boost += 4
                 elif normalized_client_engine == "자체엔진" and domain == "게임 클라이언트":
-                    score = min(100, score + 4)
+                    combo_boost += 4
 
             if normalized_game_genre:
-                score = min(100, score + 2)
+                combo_boost += 2
 
             if normalized_dev_language:
-                score = min(100, score + 2)
+                combo_boost += 2
+
+        score = min(100, score + cap_combo_boost(combo_boost, evidence_count))
+        score = apply_sparse_data_score_guard(score, evidence_count)
+        quality_confidence = compute_quality_confidence(evidence_count, feedback_count)
+        quality_band = quality_band_from_confidence(quality_confidence)
 
         dynamic_subagents, dynamic_views, official_categories = _derive_dynamic_harness_metadata(domain_posts, domain=domain)
 
@@ -303,7 +363,7 @@ async def get_recommendations(
                 "rules": top_categories or ["깨알팁", "실전 사례"],
                 "reason": (
                     (
-                        f"{domain} 도메인 포스트 {len(domain_posts)}건 + 피드백 {len(feedback)}건 기반 추천"
+                        f"{domain} 도메인 포스트 {evidence_count}건 + 피드백 {feedback_count}건 기반 추천"
                         if domain_posts or feedback
                         else f"{domain} 도메인 데이터 부족으로 기본 추천값 적용"
                     )
@@ -313,8 +373,10 @@ async def get_recommendations(
                         else ""
                     )
                 ),
-                "evidenceCount": len(domain_posts),
-                "feedbackCount": len(feedback),
+                "evidenceCount": evidence_count,
+                "feedbackCount": feedback_count,
+                "qualityConfidence": quality_confidence,
+                "qualityBand": quality_band,
                 "subagentCandidates": dynamic_subagents,
                 "dynamicViews": dynamic_views,
                 "officialCategories": official_categories,

@@ -51,6 +51,10 @@ async def generate_template_zip(
         {
             "title": p.title,
             "summary": (p.summary or p.content or p.title or ""),
+            "category": p.category,
+            "sourceType": p.source_type,
+            "sourceUrl": p.source_url,
+            "techStack": list(getattr(p, "tech_stack", []) or []),
         }
         for p in posts
     ]
